@@ -1,9 +1,25 @@
 
 import { createHash } from 'crypto';
 import { Database } from 'bun:sqlite';
+import { execSync } from 'child_process';
 import { logger } from '../../../utils/logger.js';
 import { getProjectContext } from '../../../utils/project-name.js';
 import type { ObservationInput, StoreObservationResult } from './types.js';
+
+function getCurrentGitBranch(projectPath: string): string | null {
+  try {
+    const branch = execSync(`git -C "${projectPath}" rev-parse --abbrev-ref HEAD`, {
+      encoding: 'utf8',
+      timeout: 5000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    // Detached HEAD returns 'HEAD'
+    return branch === 'HEAD' ? null : branch;
+  } catch {
+    // Not a git repo or git error
+    return null;
+  }
+}
 
 export function computeObservationContentHash(
   memorySessionId: string,
@@ -29,14 +45,15 @@ export function storeObservation(
   const timestampIso = new Date(timestampEpoch).toISOString();
 
   const resolvedProject = project || getProjectContext(process.cwd()).primary;
+  const branchName = getCurrentGitBranch(resolvedProject);
 
   const contentHash = computeObservationContentHash(memorySessionId, observation.title, observation.narrative);
 
   const stmt = db.prepare(`
     INSERT INTO observations
     (memory_session_id, project, type, title, subtitle, facts, narrative, concepts,
-     files_read, files_modified, prompt_number, discovery_tokens, agent_type, agent_id, content_hash, created_at, created_at_epoch)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     files_read, files_modified, prompt_number, discovery_tokens, agent_type, agent_id, branch_name, content_hash, created_at, created_at_epoch)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(memory_session_id, content_hash) DO NOTHING
     RETURNING id, created_at_epoch
   `);
@@ -56,6 +73,7 @@ export function storeObservation(
     discoveryTokens,
     observation.agent_type ?? null,
     observation.agent_id ?? null,
+    branchName,
     contentHash,
     timestampIso,
     timestampEpoch
