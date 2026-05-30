@@ -38,6 +38,7 @@ export class MigrationRunner {
     this.dropWorkerPidColumn();
     this.createServerOwnedTables();
     this.rebuildPendingMessagesForFinalQueueSchema();
+    this.createMempilotFeaturesTables();
   }
 
   private initializeSchema(): void {
@@ -1123,6 +1124,105 @@ export class MigrationRunner {
         throw error;
       }
       throw new Error(`Migration 34 failed: ${String(error)}`);
+    }
+  }
+
+  private createMempilotFeaturesTables(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(35) as SchemaVersion | undefined;
+    if (applied) return;
+
+    const tables = this.db.query("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('features', 'distilled_reflections', 'decisions', 'todos')").all() as TableNameRow[];
+    if (tables.length === 4) {
+      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(35, new Date().toISOString());
+      return;
+    }
+
+    logger.debug('DB', 'Creating MemPilot fork feature tables (features, distilled_reflections, decisions, todos)');
+
+    this.db.run('BEGIN TRANSACTION');
+
+    try {
+      const obsCols = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
+      const obsColNames = new Set(obsCols.map(c => c.name));
+
+      if (!obsColNames.has('branch_name')) {
+        this.db.run('ALTER TABLE observations ADD COLUMN branch_name TEXT');
+      }
+
+      if (!obsColNames.has('feature_id')) {
+        this.db.run('ALTER TABLE observations ADD COLUMN feature_id INTEGER');
+      }
+
+      this.db.run('CREATE INDEX IF NOT EXISTS idx_observations_branch_feature ON observations(branch_name, feature_id)');
+
+      this.db.run(`
+        CREATE TABLE IF NOT EXISTS features (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id INTEGER NOT NULL,
+          branch_name TEXT NOT NULL,
+          title TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'open',
+          opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          merged_at TIMESTAMP,
+          UNIQUE(project_id, branch_name)
+        )
+      `);
+
+      this.db.run(`
+        CREATE TABLE IF NOT EXISTS distilled_reflections (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          feature_id INTEGER NOT NULL REFERENCES features(id) ON DELETE CASCADE,
+          commit_sha_at_distill TEXT NOT NULL,
+          consumed_observation_ids TEXT NOT NULL,
+          superseded_by INTEGER REFERENCES distilled_reflections(id),
+          body_md TEXT NOT NULL,
+          llm_model_used TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      this.db.run('CREATE INDEX IF NOT EXISTS idx_distilled_feature_current ON distilled_reflections(feature_id) WHERE superseded_by IS NULL');
+
+      this.db.run(`
+        CREATE TABLE IF NOT EXISTS decisions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          feature_id INTEGER NOT NULL REFERENCES features(id) ON DELETE CASCADE,
+          distilled_reflection_id INTEGER NOT NULL REFERENCES distilled_reflections(id) ON DELETE CASCADE,
+          topic TEXT NOT NULL,
+          choice TEXT NOT NULL,
+          alternatives_rejected TEXT,
+          reason TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      this.db.run('CREATE INDEX IF NOT EXISTS idx_decisions_topic ON decisions(topic)');
+
+      this.db.run(`
+        CREATE TABLE IF NOT EXISTS todos (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          feature_id INTEGER REFERENCES features(id) ON DELETE CASCADE,
+          source_distilled_reflection_id INTEGER REFERENCES distilled_reflections(id) ON DELETE CASCADE,
+          body TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'open',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          closed_at TIMESTAMP
+        )
+      `);
+
+      this.db.run('CREATE INDEX IF NOT EXISTS idx_todos_open ON todos(status) WHERE status = "open"');
+
+      this.db.run('COMMIT');
+
+      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(35, new Date().toISOString());
+
+      logger.debug('DB', 'Successfully created MemPilot fork feature tables');
+    } catch (error) {
+      this.db.run('ROLLBACK');
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error(`Migration 35 (MemPilot features tables) failed: ${String(error)}`);
     }
   }
 }
