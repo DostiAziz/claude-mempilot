@@ -39,7 +39,96 @@ export class DistillManager {
       return { distillId: null, consumedObservationIds: [], newDecisionIds: [], newTodoIds: [] };
     }
 
-    throw new Error('not yet implemented: non-empty case');
+    // 5. Call provider to distill observations
+    const prompt = this.buildDistillPrompt(candidates);
+    const xml = await this.distillObservations(candidates);
+    const parsed = this.parseDistillOutput(xml);
+
+    // 6. Write in a transaction
+    let distillId: number | null = null;
+    const newDecisionIds: number[] = [];
+    const newTodoIds: number[] = [];
+
+    this.db.exec('BEGIN');
+    try {
+      const insertResult = this.db.prepare(
+        `INSERT INTO distilled_reflections
+          (feature_id, commit_sha_at_distill, consumed_observation_ids, body_md, llm_model_used)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(feature.id, input.commitSha, JSON.stringify(candidates.map((c: any) => c.id)), parsed.body, 'gemini-cli');
+
+      distillId = (insertResult.lastInsertRowid as number) || null;
+
+      if (priorDistill && distillId) {
+        this.db.prepare(
+          'UPDATE distilled_reflections SET superseded_by = ? WHERE id = ?',
+        ).run(distillId, priorDistill.id);
+      }
+
+      // Claim observations
+      for (const obs of candidates) {
+        this.db.prepare(
+          'UPDATE observations SET feature_id = ? WHERE id = ?',
+        ).run(feature.id, obs.id);
+      }
+
+      // Insert decisions
+      for (const d of parsed.decisions) {
+        const r = this.db.prepare(
+          `INSERT INTO decisions
+            (feature_id, distilled_reflection_id, topic, choice, alternatives_rejected, reason)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        ).run(feature.id, distillId, d.topic, d.choice, JSON.stringify(d.alternatives_rejected ?? []), d.reason ?? null);
+        newDecisionIds.push((r.lastInsertRowid as number) || 0);
+      }
+
+      // Insert todos
+      for (const t of parsed.todos) {
+        const r = this.db.prepare(
+          `INSERT INTO todos (feature_id, source_distilled_reflection_id, body)
+           VALUES (?, ?, ?)`,
+        ).run(feature.id, distillId, t);
+        newTodoIds.push((r.lastInsertRowid as number) || 0);
+      }
+
+      // Update feature title if still placeholder
+      if (feature.title === feature.branch_name && parsed.suggestedTitle) {
+        this.db.prepare(
+          'UPDATE features SET title = ? WHERE id = ?',
+        ).run(parsed.suggestedTitle, feature.id);
+      }
+
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+
+    return {
+      distillId,
+      consumedObservationIds: candidates.map((c: any) => c.id),
+      newDecisionIds,
+      newTodoIds,
+    };
+  }
+
+  private parseDistillOutput(xml: string) {
+    const body = (xml.match(/<body>([\s\S]*?)<\/body>/)?.[1] ?? '').trim();
+    const suggestedTitle = (xml.match(/<suggested-title>([\s\S]*?)<\/suggested-title>/)?.[1] ?? '').trim() || undefined;
+
+    const decisions: any[] = [];
+    const decisionMatches = xml.matchAll(/<decision\s+topic="([^"]*)"\s+choice="([^"]*)"(?:\s+reason="([^"]*)")?\s*\/?>/g);
+    for (const m of decisionMatches) {
+      decisions.push({ topic: m[1], choice: m[2], reason: m[3] });
+    }
+
+    const todos: string[] = [];
+    const todoMatches = xml.matchAll(/<todo>([\s\S]*?)<\/todo>/g);
+    for (const m of todoMatches) {
+      todos.push(m[1].trim());
+    }
+
+    return { body, decisions, todos, suggestedTitle };
   }
 
   private async findOrCreateFeature(projectId: number, branch: string): Promise<any> {
@@ -103,6 +192,6 @@ export class DistillManager {
   }
 
   private buildDistillPrompt(observations: any[]): string {
-    return observations.map(o => `- ${o.title}: ${o.body}`).join('\n');
+    return observations.map(o => `- ${o.title}: ${o.text}`).join('\n');
   }
 }
