@@ -116,4 +116,93 @@ describe('DistillManager.processBranch', () => {
     const feature = db.query("SELECT * FROM features WHERE id = ?").get(obs[0].feature_id) as any;
     expect(feature.title).toBe('Add foo feature');
   });
+
+  it('on second distill, processes only new observations and supersedes the prior', async () => {
+    const mockProvider = {
+      name: 'test',
+      model: 'test',
+      isAvailable: async () => true,
+      extract: async (input: any) => `<distill>
+      <body>Updated distill</body>
+      <decisions/>
+      <todos/>
+    </distill>`,
+      extractStructured: async (input: any) => ({ decisions: [] }),
+    };
+
+    const mockRegistry2 = {
+      getForTask: async (task: string) => mockProvider,
+    } as any;
+
+    const manager = new DistillManager(db, mockRegistry2);
+
+    seedProject();
+    seedSession();
+
+    // First distill
+    const now = new Date().toISOString();
+    const nowEpoch = Math.floor(Date.now() / 1000);
+    db.prepare(
+      `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(10, '1', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
+
+    const first = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha1' });
+    expect(first.distillId).not.toBe(null);
+
+    // Add new observation
+    db.prepare(
+      `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(12, '1', 'feature/foo', 'o3', 'c3', 'observation', now, nowEpoch, 'memory_session_1');
+
+    const second = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha2' });
+    expect(second.distillId).not.toBe(null);
+    expect(second.distillId).not.toBe(first.distillId);
+    expect(second.consumedObservationIds).toEqual([12]);
+
+    // Prior distill is superseded
+    const priorRow = db.query("SELECT superseded_by FROM distilled_reflections WHERE id = ?").get(first.distillId) as any;
+    expect(priorRow.superseded_by).toBe(second.distillId);
+
+    const currentRow = db.query("SELECT superseded_by FROM distilled_reflections WHERE id = ?").get(second.distillId) as any;
+    expect(currentRow.superseded_by).toBe(null);
+  });
+
+  it('is a no-op when called twice in a row with no new observations', async () => {
+    let extractCallCount = 0;
+    const mockProvider = {
+      name: 'test',
+      model: 'test',
+      isAvailable: async () => true,
+      extract: async (input: any) => {
+        extractCallCount++;
+        return '<distill><body>d</body><decisions/><todos/></distill>';
+      },
+      extractStructured: async (input: any) => ({ decisions: [] }),
+    };
+
+    const mockRegistry2 = {
+      getForTask: async (task: string) => mockProvider,
+    } as any;
+
+    const manager = new DistillManager(db, mockRegistry2);
+
+    seedProject();
+    seedSession();
+
+    // First distill
+    const now = new Date().toISOString();
+    const nowEpoch = Math.floor(Date.now() / 1000);
+    db.prepare(
+      `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(10, '1', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
+
+    const first = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha1' });
+
+    const second = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha2' });
+    expect(second.distillId).toBe(null);
+    expect(extractCallCount).toBe(1);
+  });
 });
