@@ -38,7 +38,8 @@ export class GeminiCliProvider implements LlmProvider {
       let stderr = '';
 
       try {
-        const proc = spawn(this.binary, ['-p', '-m', this.model], {
+        // Use '-p -' to read prompt from stdin, and '-m' to set the model
+        const proc = spawn(this.binary, ['-p', '-', '-m', this.model], {
           stdio: ['pipe', 'pipe', 'pipe'],
         });
 
@@ -52,7 +53,15 @@ export class GeminiCliProvider implements LlmProvider {
 
         proc.on('close', (code: number) => {
           if (code === 0) {
-            resolve(stdout.trim());
+            // The output is typically JSON with a 'response' field
+            try {
+              const parsed = JSON.parse(stdout.trim());
+              const response = parsed.response ?? stdout.trim();
+              resolve(response);
+            } catch {
+              // If not valid JSON, return raw output
+              resolve(stdout.trim());
+            }
           } else {
             const error = stderr.trim() || `gemini exited with code ${code}`;
             reject(new Error(error));
@@ -67,7 +76,7 @@ export class GeminiCliProvider implements LlmProvider {
           }
         });
 
-        // Pipe the prompt
+        // Pipe the prompt via stdin
         proc.stdin.write(input.prompt);
         proc.stdin.end();
       } catch (err: any) {

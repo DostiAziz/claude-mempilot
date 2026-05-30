@@ -12,7 +12,7 @@ describe('GeminiCliProvider', () => {
     // Reset mocks between tests
   });
 
-  it('spawns gemini with -p and -m flags', async () => {
+  it('spawns gemini with -p - and -m flags', async () => {
     const mockProcess: any = {
       stdin: { write: mock(), end: mock() },
       stdout: { on: mock() },
@@ -31,10 +31,10 @@ describe('GeminiCliProvider', () => {
 
     const promise = provider.extract({ prompt: 'extract observations from: ...' });
 
-    // Simulate XML output on stdout
+    // Simulate JSON output on stdout (as gemini CLI outputs)
     const dataCb = mockProcess.stdout.on.mock.calls.find((c: any) => c[0] === 'data')?.[1];
     if (dataCb) {
-      dataCb(Buffer.from('<observations><observation>x</observation></observations>'));
+      dataCb(Buffer.from('{"response":"<observations><observation>x</observation></observations>"}'));
     }
 
     await promise;
@@ -44,11 +44,12 @@ describe('GeminiCliProvider', () => {
     const lastCall = (spawn as any).mock.calls[(spawn as any).mock.calls.length - 1];
     expect(lastCall[0]).toBe('gemini');
     expect(lastCall[1]).toContain('-p');
+    expect(lastCall[1]).toContain('-');
     expect(lastCall[1]).toContain('-m');
     expect(lastCall[1]).toContain('gemini-2.5-flash-lite');
   });
 
-  it('returns the output as the result', async () => {
+  it('returns the response field from JSON output', async () => {
     const mockProcess: any = {
       stdin: { write: mock(), end: mock() },
       stdout: { on: mock() },
@@ -69,11 +70,39 @@ describe('GeminiCliProvider', () => {
 
     const dataCb = mockProcess.stdout.on.mock.calls.find((c: any) => c[0] === 'data')?.[1];
     if (dataCb) {
-      dataCb(Buffer.from('<observations/>'));
+      dataCb(Buffer.from('{"response":"hello world"}'));
     }
 
     const result = await promise;
-    expect(result).toBe('<observations/>');
+    expect(result).toBe('hello world');
+  });
+
+  it('falls back to raw output if JSON parse fails', async () => {
+    const mockProcess: any = {
+      stdin: { write: mock(), end: mock() },
+      stdout: { on: mock() },
+      stderr: { on: mock() },
+      on: mock((event: string, cb: Function) => {
+        if (event === 'close') setImmediate(() => cb(0));
+      }),
+    };
+
+    (spawn as any).mockReturnValue(mockProcess);
+
+    const provider = new GeminiCliProvider({
+      binary: 'gemini',
+      model: 'gemini-2.5-flash-lite',
+    });
+
+    const promise = provider.extract({ prompt: 'hi' });
+
+    const dataCb = mockProcess.stdout.on.mock.calls.find((c: any) => c[0] === 'data')?.[1];
+    if (dataCb) {
+      dataCb(Buffer.from('raw text output'));
+    }
+
+    const result = await promise;
+    expect(result).toBe('raw text output');
   });
 
   it('throws error when gemini exits non-zero', async () => {
