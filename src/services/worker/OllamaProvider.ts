@@ -1,4 +1,5 @@
 import type { LlmProvider } from '../../shared/LlmProvider.js';
+import { logger } from '../../utils/logger.js';
 
 export interface OllamaProviderOptions {
   endpoint: string;   // e.g., 'http://localhost:11434'
@@ -21,7 +22,8 @@ export class OllamaProvider implements LlmProvider {
         signal: AbortSignal.timeout(5000),
       });
       return response.ok;
-    } catch {
+    } catch (err: any) {
+      logger.debug('WORKER', 'Ollama provider availability check failed', { endpoint: this.endpoint, error: err.message });
       return false;
     }
   }
@@ -50,7 +52,8 @@ export class OllamaProvider implements LlmProvider {
     const text = await this.extract({ prompt: input.prompt });
     try {
       return JSON.parse(text);
-    } catch {
+    } catch (err: any) {
+      logger.debug('WORKER', 'Ollama failed to parse structured response as JSON', { error: err.message });
       return { raw: text };
     }
   }
