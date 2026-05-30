@@ -2,13 +2,61 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fork claude-mem and add five additive features — GeminiCliProvider, per-feature distill on git post-commit, features/todos/decisions tables, four new MCP tools, and a briefing-index extension — while leaving claude-mem's SQLite+Chroma storage and observation capture pipeline untouched.
+**Goal:** Fork claude-mem and build a **provider-agnostic memory system** that:
+1. Distills all observations into structured decisions/todos/summaries (configurable LLM)
+2. Tracks features, branches, and project state in a relational schema
+3. Summarizes context for Claude/Codex via configurable LLM (not Claude itself)
+4. **Saves 80%+ Claude tokens** by offloading heavy lifting to cheap providers (Gemini Flash, local Ollama, etc.)
+5. Leaves claude-mem's core observation capture untouched
 
-**Architecture:** Soft fork from a pinned upstream tag. All new code lives in new files; modifications to existing files are limited to registries (providers, MCP tools, briefing renderer) and a small change to the observation writer to stamp `branch_name`. Distill is idempotent via a claim-and-supersede pattern: each scratch observation gets claimed by exactly one distill, prior distills are marked `superseded_by`. Auditable, re-runnable.
+**Key Insight:** User configures which LLM provider handles each memory operation (distill, briefing, semantic search, enrichment). Default: Gemini CLI for heavy work, Claude/Codex only for user interaction.
 
-**Tech Stack:** TypeScript / Node.js (claude-mem), SQLite (existing claude-mem store), MCP protocol (existing claude-mem server), git hooks, Gemini CLI subprocess. Test framework and build tool to be confirmed in Phase 0 (likely Vitest based on the `bunfig.toml` and TS shape, but verify).
+**Architecture:** 
+- Soft fork from pinned upstream tag
+- All new code in new files + provider registry
+- Minimal changes: observation writer stamps `branch_name`, no git hooks (background async dispatch instead)
+- **Provider Registry:** Abstracts all LLM operations (distill, summary, semantic search, formatting) to pluggable providers
+- Task routing with fallback chains: if preferred provider unavailable, automatically try next
+- All memory operations configurable per-task from settings.json
+
+**Tech Stack:** TypeScript / Node.js, SQLite, Provider Registry pattern (Gemini CLI, Ollama, OpenRouter, Gemini API, Claude), async background task dispatch. Test framework: bun:test (upstream convention).
 
 **Spec reference:** [`docs/superpowers/specs/2026-05-30-mempilot-claude-mem-fork-design.md`](../specs/2026-05-30-mempilot-claude-mem-fork-design.md)
+
+---
+
+## Plan Updates (2026-05-30)
+
+### Major Changes from Original Plan
+
+1. **Provider-Agnostic Architecture (NEW)**
+   - Instead of hardcoding Gemini CLI, all LLM operations use **ProviderRegistry**
+   - Users can configure ANY provider (Ollama, Gemini CLI, OpenRouter, Gemini API, Claude) for ANY task
+   - **Phase 0.5 (NEW)** implements the registry system before any other work
+
+2. **No Post-Commit Hooks**
+   - Original plan used `.git/hooks/post-commit` (problematic: blocks git, requires worker running)
+   - **New approach (Phase 4.5):** Async background task dispatch from ResponseProcessor
+   - Distill happens when observations are written, not when git commits happen
+   - Keeps commits fast, decouples distill from git
+
+3. **Expanded Memory Operations**
+   - Original: distill, briefing, MCP tools
+   - **New:** semantic search, session summarization, feature summarization, metadata enrichment, concept extraction, file impact analysis
+   - All configurable per-task
+
+4. **Token Savings Goal Centered**
+   - Entire architecture designed around: **Gemini Flash/Ollama processes observations, Claude only handles user interaction**
+   - Saves 80-93% of Claude tokens per session
+
+### What Stayed the Same
+
+- Schema additions (features, todos, decisions tables)
+- Four MCP query tools
+- Branch name stamping at observation write time
+- CLI subcommands (init, distill)
+- Test-first development approach
+- Soft fork with minimal upstream modifications
 
 ---
 
@@ -201,7 +249,18 @@ gemini --model gemini-2.5-flash-lite -p "..."
 
 Whatever works becomes the contract for `GeminiCliProvider`.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 10: Verify provider system exists (NEW)**
+
+The plan relies heavily on pluggable providers. Verify:
+
+```bash
+grep -rn "class.*Provider" src/services/worker/ --include="*.ts" | head
+ls src/services/worker/ | grep -i provider
+```
+
+Note in fork-notes: Do ClaudeProvider, GeminiProvider, OpenRouterProvider exist? What is their interface? Can you add new providers without modifying core files?
+
+- [ ] **Step 11: Commit**
 
 Nothing to commit (read-only investigation). Proceed to Task 0.4 with `~/mempilot-fork-notes.md` populated.
 
@@ -325,6 +384,301 @@ for full architecture and step-by-step build sequence.
 ```bash
 git add README.md
 git commit -m "docs: add MemPilot fork header to README"
+```
+
+---
+
+## Phase 0.5 — Provider Registry (NEW)
+
+**Critical foundation for all memory operations.** All LLM tasks (distill, briefing, semantic search, etc.) will use this registry. Users configure providers per task from settings.json.
+
+### Task 0.5.1: Define Memory Tasks & Defaults
+
+**Files:**
+- Create: `src/shared/MemoryTaskRegistry.ts`
+- Modify: `src/shared/SettingsDefaultsManager.ts`
+
+- [ ] **Step 1: Define all memory task types**
+
+```typescript
+export type MemoryTaskType =
+  // Observation processing
+  | 'observation-analysis'
+  
+  // Distillation core
+  | 'distill'
+  | 'decision-extraction'
+  | 'todo-extraction'
+  
+  // Summarization
+  | 'session-summary'
+  | 'feature-summary'
+  | 'branch-summary'
+  
+  // Context & briefing
+  | 'briefing-generation'
+  | 'context-formatting'
+  | 'decision-formatting'
+  | 'todo-formatting'
+  
+  // Semantic
+  | 'semantic-search'
+  | 'embeddings-generation'
+  | 'similarity-scoring'
+  
+  // Enrichment
+  | 'metadata-enrichment'
+  | 'concept-extraction'
+  | 'file-impact-analysis';
+```
+
+- [ ] **Step 2: Define default provider chains**
+
+```typescript
+export const MEMORY_TASK_DEFAULTS: Record<MemoryTaskType, {
+  preferredProvider: ProviderName;
+  fallbackChain: ProviderName[];
+  costSensitive: boolean;
+}> = {
+  'distill': {
+    preferredProvider: 'gemini-cli',
+    fallbackChain: ['ollama', 'gemini-api', 'openrouter'],
+    costSensitive: true,
+  },
+  'briefing-generation': {
+    preferredProvider: 'gemini-cli',
+    fallbackChain: ['ollama', 'gemini-api'],
+    costSensitive: true,
+  },
+  'semantic-search': {
+    preferredProvider: 'ollama',
+    fallbackChain: ['gemini-cli', 'openrouter', 'gemini-api'],
+    costSensitive: false,
+  },
+  // ... 12 more tasks (see spec for full list)
+};
+```
+
+- [ ] **Step 3: Add settings for task overrides**
+
+```typescript
+// In SettingsDefaults interface:
+CLAUDE_MEM_TASKS?: Record<MemoryTaskType, ProviderName>;
+CLAUDE_MEM_PREFER_COST_OPTIMIZATION?: boolean;
+
+// In DEFAULTS:
+CLAUDE_MEM_TASKS: {},  // Empty = use defaults
+CLAUDE_MEM_PREFER_COST_OPTIMIZATION: false,
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/shared/MemoryTaskRegistry.ts src/shared/SettingsDefaultsManager.ts
+git commit -m "feat(registry): define memory tasks and provider defaults"
+```
+
+### Task 0.5.2: Create LlmProvider Interface
+
+**Files:**
+- Create: `src/shared/LlmProvider.ts`
+- Modify: `src/services/worker/{ClaudeProvider, GeminiProvider, OllamaProvider}.ts`
+
+- [ ] **Step 1: Define universal provider interface**
+
+```typescript
+export interface LlmProvider {
+  name: ProviderName;
+  model: string;
+  
+  isAvailable(): Promise<boolean>;
+  
+  extract(input: {
+    prompt: string;
+    maxTokens?: number;
+    temperature?: number;
+  }): Promise<string>;
+  
+  extractStructured(input: {
+    prompt: string;
+    schema: any;
+    maxTokens?: number;
+  }): Promise<any>;
+  
+  extractStream?(input: {
+    prompt: string;
+    onChunk: (chunk: string) => void;
+  }): Promise<string>;
+  
+  getCost?(): { inputTokenPrice: number; outputTokenPrice: number };
+  getSpeed?(): 'fast' | 'medium' | 'slow';
+}
+```
+
+- [ ] **Step 2: Verify existing providers implement interface**
+
+Each provider (Claude, Gemini, OpenRouter) should implement `LlmProvider`. If they don't, create wrapper adapters.
+
+- [ ] **Step 3: Create OllamaProvider**
+
+New provider to support local Ollama models:
+
+```typescript
+export class OllamaProvider implements LlmProvider {
+  name: ProviderName = 'ollama';
+  model: string;
+  endpoint: string;
+  
+  constructor(opts: { endpoint: string; model: string }) {
+    this.endpoint = opts.endpoint;
+    this.model = opts.model;
+  }
+  
+  async extract(input: { prompt: string }): Promise<string> {
+    const response = await fetch(`${this.endpoint}/api/generate`, {
+      method: 'POST',
+      body: JSON.stringify({ model: this.model, prompt: input.prompt }),
+    });
+    const json = await response.json();
+    return json.response;
+  }
+  
+  async isAvailable(): Promise<boolean> {
+    try {
+      await fetch(`${this.endpoint}/api/tags`, { timeout: 5000 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/shared/LlmProvider.ts src/services/worker/OllamaProvider.ts
+git commit -m "feat(provider): universal LlmProvider interface + OllamaProvider impl"
+```
+
+### Task 0.5.3: Create ProviderRegistry
+
+**Files:**
+- Create: `src/shared/ProviderRegistry.ts`
+
+- [ ] **Step 1: Implement ProviderRegistry**
+
+```typescript
+export class ProviderRegistry {
+  private providers: Map<ProviderName, LlmProvider> = new Map();
+  private taskOverrides: Map<MemoryTaskType, ProviderName> = new Map();
+  
+  constructor(settings: SettingsDefaults) {
+    this.registerProviders(settings);
+    this.loadTaskOverrides(settings);
+  }
+  
+  // Get provider for specific task
+  async getForTask(task: MemoryTaskType): Promise<LlmProvider> {
+    // 1. Check user override
+    const override = this.taskOverrides.get(task);
+    if (override) {
+      const provider = this.providers.get(override);
+      if (provider && await provider.isAvailable()) return provider;
+    }
+    
+    // 2. Check cost optimization flag
+    if (this.costOptimization) {
+      return this.getLowestCostProvider(task);
+    }
+    
+    // 3. Use task default with fallback chain
+    const taskConfig = MEMORY_TASK_DEFAULTS[task];
+    for (const providerName of [taskConfig.preferredProvider, ...taskConfig.fallbackChain]) {
+      const provider = this.providers.get(providerName);
+      if (provider && await provider.isAvailable()) return provider;
+    }
+    
+    throw new Error(`No available provider for task: ${task}`);
+  }
+  
+  // Get lowest-cost provider
+  private getLowestCostProvider(task: MemoryTaskType): LlmProvider {
+    const taskConfig = MEMORY_TASK_DEFAULTS[task];
+    const candidates = [taskConfig.preferredProvider, ...taskConfig.fallbackChain];
+    const costOrder = ['ollama', 'gemini-cli', 'openrouter', 'gemini-api', 'claude'];
+    
+    for (const providerName of costOrder) {
+      if (candidates.includes(providerName as ProviderName)) {
+        const provider = this.providers.get(providerName as ProviderName);
+        if (provider) return provider;
+      }
+    }
+    
+    return this.providers.get(taskConfig.preferredProvider)!;
+  }
+}
+```
+
+- [ ] **Step 2: Test registry routing**
+
+Create `tests/shared/ProviderRegistry.test.ts`:
+
+```typescript
+import { describe, it, expect, beforeEach } from 'bun:test';
+import { ProviderRegistry } from '../../../src/shared/ProviderRegistry.js';
+
+describe('ProviderRegistry', () => {
+  it('returns preferred provider when available', async () => {
+    const mockGemini = { isAvailable: async () => true, name: 'gemini-cli' };
+    const registry = new ProviderRegistry(mockGemini, settings);
+    
+    const provider = await registry.getForTask('distill');
+    expect(provider.name).toBe('gemini-cli');
+  });
+
+  it('falls back to next chain provider when preferred unavailable', async () => {
+    const mockGemini = { isAvailable: async () => false };
+    const mockOllama = { isAvailable: async () => true, name: 'ollama' };
+    
+    const provider = await registry.getForTask('distill');
+    expect(provider.name).toBe('ollama');
+  });
+
+  it('respects user task overrides', async () => {
+    const settings = {
+      CLAUDE_MEM_TASKS: { distill: 'ollama' }
+    };
+    const registry = new ProviderRegistry(settings);
+    
+    const provider = await registry.getForTask('distill');
+    expect(provider.name).toBe('ollama');
+  });
+  
+  it('returns lowest-cost provider when cost optimization enabled', async () => {
+    const settings = { CLAUDE_MEM_PREFER_COST_OPTIMIZATION: true };
+    const registry = new ProviderRegistry(settings);
+    
+    const provider = await registry.getForTask('semantic-search');
+    // Should prefer Ollama (free) over Gemini (cheap) over others
+    expect(provider.name).toBe('ollama');
+  });
+});
+```
+
+- [ ] **Step 3: Run tests**
+
+```bash
+npm test -- tests/shared/ProviderRegistry.test.ts
+```
+
+Expected: PASS
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/shared/ProviderRegistry.ts tests/shared/ProviderRegistry.test.ts
+git commit -m "feat(registry): implement ProviderRegistry with task routing and fallback"
 ```
 
 ---
@@ -503,9 +857,9 @@ git commit -m "test(schema): verify MemPilot tables exist and migration is idemp
 
 ---
 
-## Phase 2 — GeminiCliProvider
+## Phase 2 — GeminiCliProvider (Now Implements LlmProvider)
 
-Independent of Phase 1 — can be developed in parallel. Listed second because schema work is foundational.
+Implement Gemini CLI as a pluggable provider that implements the universal `LlmProvider` interface (created in Phase 0.5). GeminiCliProvider will be the default for most heavy-lifting tasks.
 
 ### Task 2.1: Write contract test for GeminiCliProvider
 
@@ -842,9 +1196,9 @@ This was a smoke test. No code changes.
 
 ---
 
-## Phase 3 — DistillManager (the algorithm core)
+## Phase 3 — DistillManager (Core Algorithm)
 
-The hardest piece. Build it incrementally: each idempotency property gets its own test before moving to the next.
+DistillManager uses the ProviderRegistry (Phase 0.5) to select appropriate LLM for each sub-task (distill, decision-extraction, todo-extraction). Build incrementally with idempotency tests.
 
 ### Task 3.1: Create the DistillManager module skeleton
 
@@ -854,8 +1208,8 @@ The hardest piece. Build it incrementally: each idempotency property gets its ow
 - [ ] **Step 1: Write the module skeleton**
 
 ```typescript
-import type { Database } from '../../storage/db.js';      // verify path
-import type { Provider } from './provider-interface.js';   // verify name
+import type { Database } from '../../storage/db.js';
+import type { ProviderRegistry } from '../../shared/ProviderRegistry.js';
 import { logger } from '../../utils/logger.js';
 
 export interface DistillInput {
@@ -866,17 +1220,44 @@ export interface DistillInput {
 }
 
 export interface DistillOutput {
-  distillId: number | null;     // null when no-op
+  distillId: number | null;
   consumedObservationIds: number[];
   newDecisionIds: number[];
   newTodoIds: number[];
 }
 
 export class DistillManager {
-  constructor(private db: Database, private provider: Provider) {}
+  constructor(
+    private db: Database,
+    private providerRegistry: ProviderRegistry
+    // ^ Gets provider per task via registry
+  ) {}
 
   async processBranch(input: DistillInput): Promise<DistillOutput> {
     throw new Error('not yet implemented');
+  }
+
+  // Sub-tasks will each use appropriate provider from registry
+  private async distillObservations(observations: any[]): Promise<string> {
+    const provider = await this.providerRegistry.getForTask('distill');
+    const prompt = this.buildDistillPrompt(observations);
+    return await provider.extract({ prompt });
+  }
+
+  private async extractDecisions(body: string): Promise<any[]> {
+    const provider = await this.providerRegistry.getForTask('decision-extraction');
+    return await provider.extractStructured({
+      prompt: `Extract decisions from: ${body}`,
+      schema: { decisions: { type: 'array' } }
+    });
+  }
+
+  private async extractTodos(body: string): Promise<string[]> {
+    const provider = await this.providerRegistry.getForTask('todo-extraction');
+    const response = await provider.extract({
+      prompt: `Extract actionable items from: ${body}`
+    });
+    return response.split('\n').filter(line => line.trim());
   }
 }
 ```
@@ -885,7 +1266,7 @@ export class DistillManager {
 
 ```bash
 git add src/services/worker/DistillManager.ts
-git commit -m "feat(distill): DistillManager skeleton"
+git commit -m "feat(distill): DistillManager skeleton with provider registry integration"
 ```
 
 ### Task 3.2: Implement empty-case path (no observations → no-op)
@@ -1685,6 +2066,79 @@ git commit -m "feat(observations): stamp branch_name on scratch writes"
 
 ---
 
+## Phase 4.5 — DistillDispatcher (Async Background Task) (NEW)
+
+**IMPORTANT:** Instead of post-commit hooks (which block git), distill is triggered asynchronously when observations are written. This keeps commits fast and decouples distill from git.
+
+### Task 4.5.1: Create DistillDispatcher
+
+**Files:**
+- Create: `src/services/worker/DistillDispatcher.ts`
+
+- [ ] **Step 1: Implement async queue-based dispatcher**
+
+```typescript
+export class DistillDispatcher {
+  private queue: DistillInput[] = [];
+  private processing = false;
+
+  constructor(
+    private db: Database,
+    private providerRegistry: ProviderRegistry
+  ) {}
+
+  // Called from ResponseProcessor after observation write (non-blocking)
+  dispatchDistill(input: DistillInput): void {
+    this.queue.push(input);
+    this.processQueueAsync();  // Fire and forget
+  }
+
+  // Background processing — never blocks observation storage
+  private async processQueueAsync(): Promise<void> {
+    if (this.processing) return;
+    this.processing = true;
+
+    while (this.queue.length > 0) {
+      const task = this.queue.shift()!;
+      try {
+        const manager = new DistillManager(this.db, this.providerRegistry);
+        const result = await manager.processBranch(task);
+        logger.info('Distill complete:', result.distillId ?? 'no-op');
+      } catch (err) {
+        logger.warn('Distill failed (non-blocking):', err);
+      }
+    }
+
+    this.processing = false;
+  }
+}
+```
+
+- [ ] **Step 2: Integrate into ResponseProcessor**
+
+In `src/services/worker/agents/ResponseProcessor.ts`:
+
+```typescript
+// After storeObservations completes:
+this.distillDispatcher.dispatchDistill({
+  projectId: this.project.id,
+  branch: this.cachedBranch,
+  commitSha: this.commitSha,
+}).catch(err => logger.warn('Distill dispatch failed:', err));
+
+// Return to user immediately (doesn't wait for distill)
+return { success: true, observationIds };
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/services/worker/DistillDispatcher.ts
+git commit -m "feat(distill): async background dispatcher (no post-commit hook needed)"
+```
+
+---
+
 ## Phase 5 — `claude-mem distill` CLI subcommand
 
 ### Task 5.1: Test the CLI subcommand wiring
@@ -2373,216 +2827,272 @@ git commit -m "feat(mcp): add list_features tool"
 
 ---
 
-## Phase 8 — Briefing extension
+## Phase 8 — Memory Operations with Provider Registry
 
-### Task 8.1: BriefingExtensions module
+All memory operations now use ProviderRegistry for flexible LLM selection. This phase adds semantic search, summarization, and enhanced briefing.
+
+### Task 8.0: Semantic Search Engine (NEW)
 
 **Files:**
-- Create: `src/services/worker/BriefingExtensions.ts`
-- Create: `tests/services/worker/BriefingExtensions.test.ts`
+- Create: `src/services/search/SemanticSearchEngine.ts`
+- Create: `tests/services/search/SemanticSearchEngine.test.ts`
 
-- [ ] **Step 1: Test**
+- [ ] **Step 1: Implement semantic search using provider registry**
 
 ```typescript
-import { describe, it, expect, beforeEach } from 'vitest';
-import { renderBriefingExtensions } from '../../../src/services/worker/BriefingExtensions.js';
-import { setupTestDb } from '../../helpers/test-db.js';
+export class SemanticSearchEngine {
+  constructor(
+    private db: Database,
+    private providerRegistry: ProviderRegistry
+  ) {}
 
-describe('renderBriefingExtensions', () => {
-  let db: any;
-  beforeEach(async () => {
-    db = await setupTestDb();
-    await db.run("INSERT INTO projects (id, path, name) VALUES (1, '/x', 'x')");
-  });
+  async search(query: string, projectId: number): Promise<Observation[]> {
+    // 1. Generate embeddings for query (uses configured provider)
+    const embeddingProvider = await this.providerRegistry.getForTask('embeddings-generation');
+    // ^ User can configure: Ollama (local), Gemini API, OpenRouter, etc.
+    
+    const queryEmbedding = await embeddingProvider.extract({
+      prompt: `Generate embedding for: "${query}"`
+    });
 
-  it('returns empty string when there are no features, decisions, or todos', async () => {
-    const md = await renderBriefingExtensions(db, { projectIds: [1] });
-    expect(md).toBe('');
-  });
+    // 2. Score similarity with observations
+    const scoreProvider = await this.providerRegistry.getForTask('similarity-scoring');
+    const observations = this.db.getObservations(projectId);
+    
+    const scored = await Promise.all(
+      observations.map(async (obs) => ({
+        observation: obs,
+        score: await scoreProvider.extract({
+          prompt: `Score similarity (0-100) between "${query}" and "${obs.body}"`
+        })
+      }))
+    );
 
-  it('renders three sections when data exists', async () => {
-    await db.run("INSERT INTO features (id, project_id, branch_name, title, status) VALUES (1, 1, 'feature/auth', 'Auth refactor', 'open')");
-    await db.run("INSERT INTO distilled_reflections (id, feature_id, commit_sha_at_distill, consumed_observation_ids, body_md, llm_model_used) VALUES (1, 1, 's', '[]', 'b', 'm')");
-    await db.run("INSERT INTO decisions (feature_id, distilled_reflection_id, topic, choice) VALUES (1, 1, 'trigger', 'post-commit')");
-    await db.run("INSERT INTO todos (feature_id, source_distilled_reflection_id, body) VALUES (1, 1, 'Add tests')");
+    return scored
+      .sort((a, b) => parseFloat(b.score) - parseFloat(a.score))
+      .slice(0, 10)
+      .map(s => s.observation);
+  }
+}
+```
 
-    const md = await renderBriefingExtensions(db, { projectIds: [1] });
-    expect(md).toContain('## Open features');
-    expect(md).toContain('Auth refactor');
-    expect(md).toContain('## Recent decisions');
-    expect(md).toContain('trigger');
-    expect(md).toContain('## Open TODOs');
-    expect(md).toContain('Add tests');
-  });
+- [ ] **Step 2: Write tests, commit**
 
-  it('respects the token budget by truncating older entries', async () => {
-    // Insert 100 features
-    for (let i = 0; i < 100; i++) {
-      await db.run(
-        "INSERT INTO features (project_id, branch_name, title, status) VALUES (1, ?, ?, 'open')",
-        [`feature/b${i}`, `Title ${i}`],
-      );
+```bash
+npm test -- tests/services/search/SemanticSearchEngine.test.ts
+git add src/services/search/SemanticSearchEngine.ts tests/services/search/SemanticSearchEngine.test.ts
+git commit -m "feat(search): semantic search engine using provider registry"
+```
+
+### Task 8.1: Session Summarizer (NEW)
+
+**Files:**
+- Create: `src/services/worker/SessionSummarizer.ts`
+
+- [ ] **Step 1: Implement session and feature summarizers**
+
+```typescript
+export class SessionSummarizer {
+  constructor(
+    private db: Database,
+    private providerRegistry: ProviderRegistry
+  ) {}
+
+  async summarizeSession(sessionId: string): Promise<string> {
+    const observations = this.db.getObservationsForSession(sessionId);
+    
+    // Use configured provider for session summaries
+    const provider = await this.providerRegistry.getForTask('session-summary');
+    return await provider.extract({
+      prompt: `Summarize this session: ${observations.map(o => o.title).join(', ')}`
+    });
+  }
+
+  async summarizeFeature(featureId: number): Promise<string> {
+    const distills = this.db.getDistillsForFeature(featureId);
+    
+    // Use configured provider for feature summaries
+    const provider = await this.providerRegistry.getForTask('feature-summary');
+    return await provider.extract({
+      prompt: `Summarize this feature work: ${distills.map(d => d.body_md).join('\n')}`
+    });
+  }
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/services/worker/SessionSummarizer.ts
+git commit -m "feat(summarization): session and feature summarizers with provider registry"
+```
+
+## Phase 9 — Briefing extension (Updated)
+
+### Task 9.1: BriefingFormatter with Provider Registry
+
+**Files:**
+- Create: `src/services/context/BriefingFormatter.ts`
+- Create: `tests/services/context/BriefingFormatter.test.ts`
+
+- [ ] **Step 1: Implement briefing formatter using providers**
+
+```typescript
+export class BriefingFormatter {
+  constructor(
+    private db: Database,
+    private providerRegistry: ProviderRegistry
+  ) {}
+
+  async formatBriefing(projectIds: number[]): Promise<string> {
+    // 1. Query DB for distilled data
+    const features = this.db.getOpenFeatures(projectIds);
+    const decisions = this.db.getRecentDecisions(projectIds);
+    const todos = this.db.getOpenTodos(projectIds);
+
+    if (features.length === 0 && decisions.length === 0 && todos.length === 0) {
+      return '';
     }
-    const md = await renderBriefingExtensions(db, { projectIds: [1], maxTokens: 500 });
-    // Rough estimate: 4 chars ≈ 1 token; 500 tokens ≈ 2000 chars
-    expect(md.length).toBeLessThan(2500);
+
+    // 2. Format each section using configured providers
+    let briefing = '';
+
+    if (features.length) {
+      const formatter = await this.providerRegistry.getForTask('decision-formatting');
+      const formatted = await formatter.extract({
+        prompt: `Format these open features as bullets: ${JSON.stringify(features)}`
+      });
+      briefing += `## Open Features\n\n${formatted}\n\n`;
+    }
+
+    if (decisions.length) {
+      const formatter = await this.providerRegistry.getForTask('decision-formatting');
+      const formatted = await formatter.extract({
+        prompt: `Format these decisions as a summary: ${JSON.stringify(decisions)}`
+      });
+      briefing += `## Recent Decisions\n\n${formatted}\n\n`;
+    }
+
+    if (todos.length) {
+      const formatter = await this.providerRegistry.getForTask('todo-formatting');
+      const formatted = await formatter.extract({
+        prompt: `Format these todos as a checklist: ${JSON.stringify(todos)}`
+      });
+      briefing += `## Open TODOs\n\n${formatted}\n\n`;
+    }
+
+    // 3. Final briefing generation
+    const briefingProvider = await this.providerRegistry.getForTask('briefing-generation');
+    return await briefingProvider.extract({
+      prompt: `Create a concise project briefing (3-4 sentences):\n${briefing}`
+    });
+    // ^ User configured provider (default: Gemini CLI, could be Ollama, etc.)
+  }
+}
+```
+
+- [ ] **Step 2: Write tests**
+
+```typescript
+describe('BriefingFormatter', () => {
+  it('uses provider registry to format each section', async () => {
+    const mockRegistry = {
+      getForTask: async (task: string) => ({
+        extract: async ({ prompt }: any) => `Formatted ${task}`
+      })
+    };
+    
+    const formatter = new BriefingFormatter(db, mockRegistry as any);
+    const briefing = await formatter.formatBriefing([1]);
+    
+    expect(briefing).toContain('Formatted decision-formatting');
+    expect(briefing).toContain('Formatted briefing-generation');
+  });
+
+  it('returns empty string when no features/decisions/todos', async () => {
+    const formatter = new BriefingFormatter(db, registry);
+    const briefing = await formatter.formatBriefing([999]);
+    expect(briefing).toBe('');
   });
 });
 ```
 
-- [ ] **Step 2: Implement**
-
-```typescript
-import type { Database } from '../../storage/db.js';
-
-export interface RenderBriefingInput {
-  projectIds: number[];
-  maxTokens?: number;
-}
-
-export async function renderBriefingExtensions(db: Database, input: RenderBriefingInput): Promise<string> {
-  const maxTokens = input.maxTokens ?? 1000;
-  const placeholders = input.projectIds.map(() => '?').join(',');
-
-  const features = await db.all(
-    `SELECT * FROM features WHERE project_id IN (${placeholders}) AND status = 'open' ORDER BY opened_at DESC LIMIT 10`,
-    input.projectIds,
-  );
-  const decisions = await db.all(
-    `SELECT d.*, f.branch_name FROM decisions d JOIN features f ON d.feature_id = f.id
-     WHERE f.project_id IN (${placeholders}) ORDER BY d.created_at DESC LIMIT 10`,
-    input.projectIds,
-  );
-  const todos = await db.all(
-    `SELECT t.*, f.branch_name FROM todos t LEFT JOIN features f ON t.feature_id = f.id
-     WHERE (f.project_id IN (${placeholders}) OR t.feature_id IS NULL) AND t.status = 'open'
-     ORDER BY t.created_at DESC LIMIT 20`,
-    input.projectIds,
-  );
-
-  if (features.length === 0 && decisions.length === 0 && todos.length === 0) return '';
-
-  let md = '';
-  if (features.length) {
-    md += `## Open features (${features.length})\n\n`;
-    md += `| ID | Branch | Title | Opened |\n|----|--------|-------|--------|\n`;
-    for (const f of features) {
-      md += `| F#${f.id} | ${f.branch_name} | ${f.title} | ${f.opened_at} |\n`;
-    }
-    md += `\n*Use list_features / get_feature_history for details.*\n\n`;
-  }
-  if (decisions.length) {
-    md += `## Recent decisions (${decisions.length})\n\n`;
-    md += `| ID | Topic | Choice | Branch |\n|----|-------|--------|--------|\n`;
-    for (const d of decisions) {
-      md += `| D#${d.id} | ${d.topic} | ${d.choice} | ${d.branch_name ?? ''} |\n`;
-    }
-    md += `\n*Use list_decisions for details.*\n\n`;
-  }
-  if (todos.length) {
-    md += `## Open TODOs (${todos.length})\n\n`;
-    md += `| ID | Body | Branch |\n|----|------|--------|\n`;
-    for (const t of todos) {
-      md += `| T#${t.id} | ${t.body} | ${t.branch_name ?? ''} |\n`;
-    }
-    md += `\n*Use list_open_todos for details.*\n\n`;
-  }
-
-  // Token budget enforcement (rough char ≈ 4 char/token)
-  const maxChars = maxTokens * 4;
-  if (md.length > maxChars) {
-    md = md.slice(0, maxChars - 100) + '\n\n*…truncated by briefing token budget.*\n';
-  }
-
-  return md;
-}
-```
-
-- [ ] **Step 3: Run tests, commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-npm test -- tests/services/worker/BriefingExtensions.test.ts
-git add tests/services/worker/BriefingExtensions.test.ts src/services/worker/BriefingExtensions.ts
-git commit -m "feat(briefing): renderBriefingExtensions appends features/decisions/todos sections"
+git add src/services/context/BriefingFormatter.ts tests/services/context/BriefingFormatter.test.ts
+git commit -m "feat(briefing): BriefingFormatter uses provider registry for formatting"
 ```
 
-### Task 8.2: Wire BriefingExtensions into the context handler
+### Task 9.2: Wire BriefingFormatter into SessionStart Hook
 
 **Files:**
-- Modify: `src/cli/handlers/context.ts` (or wherever the briefing markdown is finalized; verify in Task 0.3 step 7)
+- Modify: `src/cli/handlers/context.ts` (SessionStart hook handler)
 
-- [ ] **Step 1: Find where briefing markdown is finalized**
+- [ ] **Step 1: Wire into SessionStart hook handler**
 
-The hook handler in `src/cli/handlers/context.ts` already calls the worker via HTTP and reads back markdown. The actual rendering likely happens on the **worker side**, not the hook side. Find it:
-
-```bash
-grep -rn "/api/context/inject" src/ --include="*.ts"
-```
-
-This should point to a worker route file that produces the markdown. That's where extensions plug in.
-
-- [ ] **Step 2: Add a settings check + append extensions**
-
-In the worker route handler (wherever it builds the response markdown), after the existing index is built:
+In `src/cli/handlers/context.ts`:
 
 ```typescript
-import { renderBriefingExtensions } from '../services/worker/BriefingExtensions.js';
+import { BriefingFormatter } from '../services/context/BriefingFormatter.js';
 
-const settings = loadSettings();
-if (settings.CLAUDE_MEM_BRIEFING_EXTENSIONS !== false) {  // default ON
-  const projectIds = await resolveProjectIds(projectsParam);
-  const extras = await renderBriefingExtensions(db, { projectIds });
-  if (extras) {
-    responseMarkdown += `\n\n${extras}`;
-  }
+export async function runContextHandler(input: ContextInput): Promise<HookResult> {
+  const projectIds = parseProjectIds(input.projects);
+  
+  // Get briefing using configured providers
+  const formatter = new BriefingFormatter(db, providerRegistry);
+  const briefing = await formatter.formatBriefing(projectIds);
+  
+  // Inject into context
+  return {
+    continue: true,
+    hookSpecificOutput: {
+      hookEventName: 'context',
+      additionalContext: briefing,
+    },
+  };
 }
 ```
 
-- [ ] **Step 3: Add an integration test**
+- [ ] **Step 2: Add integration test**
 
 ```typescript
-// tests/integration/briefing-with-extensions.test.ts (sketch)
-import { describe, it, expect } from 'vitest';
-// ... seeds a DB, calls the worker route, asserts the markdown contains both
-// the existing observation index AND the new "Open features" section.
-```
+// tests/integration/briefing-with-providers.test.ts
+describe('Briefing with ProviderRegistry', () => {
+  it('formats briefing using configured providers', async () => {
+    const mockRegistry = {
+      getForTask: async (task: string) => ({
+        extract: async ({ prompt }: any) => `Formatted via ${task}`
+      })
+    };
+    
+    const formatter = new BriefingFormatter(db, mockRegistry as any);
+    const briefing = await formatter.formatBriefing([1]);
+    
+    expect(briefing).toContain('Formatted');
+  });
 
-- [ ] **Step 4: Run tests, commit**
-
-```bash
-npm test -- tests/integration/briefing-with-extensions.test.ts
-git add tests/integration/briefing-with-extensions.test.ts src/<worker-route-file>.ts
-git commit -m "feat(briefing): wire BriefingExtensions into context inject route"
-```
-
-### Task 8.3: Verify the feature flag disables extensions cleanly
-
-**Files:** none (test only)
-
-- [ ] **Step 1: Add a test case to the integration test**
-
-```typescript
-it('emits identical markdown to upstream when CLAUDE_MEM_BRIEFING_EXTENSIONS=false', async () => {
-  // seed extensions data
-  // set CLAUDE_MEM_BRIEFING_EXTENSIONS=false
-  // call route
-  // assert markdown matches upstream byte-for-byte (or contains no '## Open features')
+  it('uses fallback providers when preferred unavailable', async () => {
+    // Test that fallback chain works
+    const registry = new ProviderRegistry(settings);
+    const briefing = await formatter.formatBriefing([1]);
+    expect(briefing).toBeDefined();
+  });
 });
 ```
 
-- [ ] **Step 2: Run, commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-npm test
-git add tests/integration/briefing-with-extensions.test.ts
-git commit -m "test(briefing): feature flag cleanly reverts to upstream behavior"
+git add src/cli/handlers/context.ts tests/integration/briefing-with-providers.test.ts
+git commit -m "feat(briefing): wire BriefingFormatter into SessionStart hook with provider registry"
 ```
 
 ---
 
-## Phase 9 — Top-level wiring and end-to-end scenario
+## Phase 10 — End-to-End Testing & Release
 
-### Task 9.1: Renamed binary and package metadata
+### Task 10.1: Binary rename and package metadata
 
 **Files:**
 - Modify: `package.json`
@@ -2639,199 +3149,175 @@ git add package.json install/ scripts/
 git commit -m "chore: rename package to claude-mem-pilot, add binary alias"
 ```
 
-### Task 9.2: End-to-end scripted scenario
+### Task 10.2: End-to-end scripted scenario
 
 **Files:**
 - Create: `tests/scenarios/full-flow.test.ts`
 
 - [ ] **Step 1: Write the end-to-end test**
 
+Test the full flow: observations → distill (with ProviderRegistry) → DB → briefing formatting.
+
 ```typescript
-import { describe, it, expect } from 'vitest';
-import { execSync } from 'child_process';
-import { mkdtempSync, writeFileSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
-import { setupTestDb } from '../helpers/test-db.js';
-import { writeObservation } from '../../src/services/worker/<EXACT_FILE>.js';
-import { runDistillCommand } from '../../src/cli/commands/distill.js';
-import { renderBriefingExtensions } from '../../src/services/worker/BriefingExtensions.js';
-
-describe('end-to-end: scratch → commit → distill → briefing', () => {
-  it('captures the full lifecycle', async () => {
+describe('end-to-end: observation → distill → briefing', () => {
+  it('processes observations through providers and formats briefing', async () => {
     const db = await setupTestDb();
-    const repoPath = mkdtempSync(join(tmpdir(), 'e2e-'));
-    execSync(`git -C "${repoPath}" init -b main`);
-    writeFileSync(join(repoPath, 'README.md'), '# x');
-    execSync(`git -C "${repoPath}" add . && git -C "${repoPath}" commit -m init`);
-    execSync(`git -C "${repoPath}" checkout -b feature/foo`);
-    await db.run("INSERT INTO projects (id, path, name) VALUES (1, ?, 'x')", [repoPath]);
-
-    // 1. Simulate scratch observations being written
-    await writeObservation(db, { projectId: 1, title: 'fixed timeout', body: 'changed 60s to 120s' });
-    await writeObservation(db, { projectId: 1, title: 'added test', body: 'covers npm install case' });
-
-    // 2. Simulate git commit + distill (in-process)
-    writeFileSync(join(repoPath, 'change.txt'), 'x');
-    execSync(`git -C "${repoPath}" add . && git -C "${repoPath}" commit -m "feature work"`);
-    const commitSha = execSync(`git -C "${repoPath}" rev-parse HEAD`, { encoding: 'utf8' }).trim();
-
-    const fakeProvider = {
-      extract: async () => `<distill>
-        <body>Increased hook timeout</body>
-        <decisions><decision topic="timeout" choice="120s" reason="npm slow"/></decisions>
-        <todos><todo>Document the new default</todo></todos>
-        <suggested-title>Fix hook timeout</suggested-title>
-      </distill>`,
-      model: 'mock',
+    const mockRegistry = {
+      getForTask: async (task: string) => ({
+        extract: async ({ prompt }: any) => {
+          if (task === 'distill') return JSON.stringify({
+            summary: 'Increased timeout',
+            decisions: [{ topic: 'timeout', choice: '120s' }],
+            todos: ['Document the change'],
+            suggested_title: 'Fix hook timeout'
+          });
+          return `Formatted ${task}`;
+        }
+      })
     };
 
-    await runDistillCommand({
-      args: ['--project', repoPath, '--commit', commitSha],
-      managerFactory: () => {
-        const { DistillManager } = require('../../src/services/worker/DistillManager.js');
-        return new DistillManager(db, fakeProvider);
-      },
-      projectResolver: async () => ({ id: 1, branch: 'feature/foo' }),
+    // 1. Write observations
+    await db.run("INSERT INTO projects (id, path, name) VALUES (1, '/x', 'x')");
+    await db.run("INSERT INTO observations (project_id, branch_name, title, body) VALUES (1, 'feature/timeout', 'fixed', 'changed 60s to 120s')");
+
+    // 2. Run distill
+    const manager = new DistillManager(db, mockRegistry as any);
+    const result = await manager.processBranch({
+      projectId: 1,
+      branch: 'feature/timeout',
+      commitSha: 'abc123',
     });
 
-    // 3. Verify state
-    const distill = await db.get("SELECT * FROM distilled_reflections WHERE superseded_by IS NULL");
-    expect(distill).toBeDefined();
-    expect(distill.body_md).toContain('Increased hook timeout');
+    // 3. Verify distill results
+    expect(result.distillId).not.toBeNull();
+    expect(result.consumedObservationIds).toEqual([1]);
 
-    const feature = await db.get("SELECT * FROM features WHERE branch_name = 'feature/foo'");
-    expect(feature.title).toBe('Fix hook timeout');
-
-    const decisions = await db.all("SELECT * FROM decisions");
-    expect(decisions.length).toBe(1);
-    expect(decisions[0].topic).toBe('timeout');
-
-    const todos = await db.all("SELECT * FROM todos");
-    expect(todos.length).toBe(1);
-
-    // 4. Render the briefing
-    const briefing = await renderBriefingExtensions(db, { projectIds: [1] });
-    expect(briefing).toContain('Fix hook timeout');
-    expect(briefing).toContain('timeout');
-    expect(briefing).toContain('Document the new default');
+    // 4. Format briefing
+    const formatter = new BriefingFormatter(db, mockRegistry as any);
+    const briefing = await formatter.formatBriefing([1]);
+    expect(briefing).toContain('Formatted briefing-generation');
   });
 });
 ```
 
-- [ ] **Step 2: Run the test**
+- [ ] **Step 2: Run test**
 
 ```bash
 npm test -- tests/scenarios/full-flow.test.ts
 ```
 
-Expected: PASS.
+Expected: PASS
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add tests/scenarios/full-flow.test.ts
-git commit -m "test(scenario): full lifecycle scratch → distill → briefing"
+git commit -m "test(scenario): full lifecycle observation → distill → briefing with providers"
 ```
 
-### Task 9.3: Real-world smoke
+### Task 10.3: Real-world provider configuration test
 
-**Files:** none (manual)
+**Files:** none (configuration verification)
 
-- [ ] **Step 1: Set up a real Claude Code session against the fork**
+- [ ] **Step 1: Test different provider configurations**
 
 ```bash
-cd ~/projects/mempilot-testbed
-git checkout -b feature/smoke-test
-claude-mem-pilot init
-# Run a real Claude Code session — do a small task (e.g., add a function to a file)
-# End the session.
-sleep 10
-sqlite3 ~/.claude-mem-fork/db.sqlite "SELECT id, title, branch_name FROM observations ORDER BY id DESC LIMIT 5"
+# Config A: All local Ollama
+echo '{"CLAUDE_MEM_TASKS": {"*": "ollama"}}' > ~/.claude-mem/settings.json
+# Run a session, verify distill uses Ollama
+
+# Config B: Gemini CLI (user's goal)
+echo '{"CLAUDE_MEM_TASKS": {"*": "gemini-cli"}}' > ~/.claude-mem/settings.json
+# Run a session, verify distill uses Gemini CLI
+
+# Config C: Hybrid
+echo '{
+  "CLAUDE_MEM_TASKS": {
+    "distill": "gemini-cli",
+    "semantic-search": "ollama",
+    "briefing-generation": "gemini-cli"
+  }
+}' > ~/.claude-mem/settings.json
+# Run a session, verify each task uses configured provider
 ```
 
-Expected: observations from the session have `branch_name = 'feature/smoke-test'`.
-
-- [ ] **Step 2: Commit + distill**
-
-```bash
-git add -A && git commit -m "test feature"
-sleep 5
-sqlite3 ~/.claude-mem-fork/db.sqlite "SELECT id, feature_id, body_md FROM distilled_reflections ORDER BY id DESC LIMIT 1"
-```
-
-Expected: a distilled reflection row exists for `feature/smoke-test`.
-
-- [ ] **Step 3: Start a new session, verify the briefing**
-
-Open Claude Code again in the same directory. Check that the SessionStart hook injects the new "Open features" / "Recent decisions" / "Open TODOs" sections.
-
-- [ ] **Step 4: If everything works, tag a v0.1.0 release**
+- [ ] **Step 2: Tag v0.1.0 release**
 
 ```bash
 git tag v0.1.0
 git push --tags
 ```
 
-- [ ] **Step 5: Commit nothing further (release is a tag, not a commit)**
-
 ---
 
-## Phase 10 — Documentation & rebase discipline
+## Phase 11 — Documentation & Release
 
-### Task 10.1: Document the fork
+### Task 11.1: Architecture & Configuration Documentation
 
 **Files:**
-- Create: `docs/fork-overview.md`
+- Create: `docs/ARCHITECTURE.md`
+- Create: `docs/CONFIGURATION.md`
 
-- [ ] **Step 1: Write a short overview that points to the design spec**
+- [ ] **Step 1: Document Provider Registry architecture**
 
-```markdown
-# MemPilot fork — overview
+Create `docs/ARCHITECTURE.md` with sections on:
+- Provider Registry system
+- Supported providers (Gemini CLI, Ollama, OpenRouter, Gemini API, Claude)
+- 16 configurable memory tasks
+- Async distillation (no post-commit hooks)
+- Token savings breakdown
 
-This fork pinned upstream `thedotmack/claude-mem` at tag `<TAG>` and adds:
+- [ ] **Step 2: Document configuration options**
 
-- `GeminiCliProvider` (CLAUDE_MEM_PROVIDER=gemini-cli)
-- Per-feature distill on git post-commit
-- `features`, `todos`, `decisions`, `distilled_reflections` tables
-- MCP tools: `list_decisions`, `get_feature_history`, `list_open_todos`, `list_features`
-- Briefing extensions appended to Progressive Disclosure index
+Create `docs/CONFIGURATION.md` with:
+- Complete settings.json schema
+- Provider-specific configuration
+- Task-to-provider mapping
+- Example configurations (all-local, hybrid, premium)
+- Cost optimization strategies
 
-Full architecture: [design spec](specs/2026-05-30-mempilot-claude-mem-fork-design.md).
-
-## Settings additions
-
-```json
-{
-  "CLAUDE_MEM_PROVIDER": "gemini-cli",
-  "CLAUDE_MEM_GEMINI_CLI_BINARY": "gemini",
-  "CLAUDE_MEM_GEMINI_CLI_MODEL": "gemini-2.5-flash-lite",
-  "CLAUDE_MEM_DISTILL_DEBOUNCE_SECONDS": 60,
-  "CLAUDE_MEM_DISTILL_DEBOUNCE_MIN_OBSERVATIONS": 3,
-  "CLAUDE_MEM_BRIEFING_EXTENSIONS": true
-}
-```
-
-## New subcommands
-
-- `claude-mem-pilot init` — register repo, install post-commit hook
-- `claude-mem-pilot distill [--commit SHA] [--force]` — run distill manually
-
-## Upstream rebase policy
-
-- Rebase against `upstream/main` weekly during active dev, monthly after stabilization.
-- Conflicts limited to: provider registry, MCP tool registry, briefing renderer, observation writer.
-- If conflicts persist across two rebases: PR features upstream and shed the fork.
-```
-
-- [ ] **Step 2: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add docs/fork-overview.md
-git commit -m "docs: fork overview and rebase policy"
+git add docs/ARCHITECTURE.md docs/CONFIGURATION.md
+git commit -m "docs: provider registry architecture and configuration guide"
 ```
 
-### Task 10.2: Set up upstream remote and first rebase rehearsal
+### Task 11.2: README & Release Notes
+
+**Files:**
+- Modify: `README.md` (update fork header)
+- Create: `docs/RELEASE_NOTES.md`
+
+- [ ] **Step 1: Update README with new architecture focus**
+
+Replace old fork header with clear description of:
+- Provider-agnostic LLM system
+- 93% token savings goal
+- Supported providers
+- Quick start example
+- Link to ARCHITECTURE.md
+
+- [ ] **Step 2: Write v0.1.0 release notes**
+
+Document:
+- Provider Registry system launch
+- Supported providers and their use cases
+- Async distillation architecture
+- Token savings metrics
+- Four new MCP tools
+- New memory operations
+- Configuration examples
+- Upstream rebase policy
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add README.md docs/RELEASE_NOTES.md
+git commit -m "docs: update README for provider registry, add v0.1.0 release notes"
+```
+
+### Task 11.3: Upstream Rebase Setup & First Rehearsal
 
 **Files:** none
 
@@ -2842,47 +3328,109 @@ git remote add upstream https://github.com/thedotmack/claude-mem.git
 git fetch upstream
 ```
 
-- [ ] **Step 2: Rehearse rebase against current upstream main (don't push)**
+- [ ] **Step 2: Rehearse rebase against latest upstream (don't push)**
 
 ```bash
 git checkout -b rebase-rehearsal mempilot-main
 git rebase upstream/main
 ```
 
-Expected: some conflicts in registry files. Resolve them. Document the resolution patterns in `~/mempilot-fork-notes.md` for future rebases.
+Expected conflicts in:
+- Provider registries (merge new upstream providers)
+- Observation writer (merge branch_name changes with upstream)
+- MCP tool registry (merge new upstream tools)
 
-- [ ] **Step 3: Discard the rehearsal branch**
+Document resolution patterns for future rebases.
+
+- [ ] **Step 3: Discard rehearsal branch**
 
 ```bash
-git rebase --abort  # or git checkout mempilot-main && git branch -D rebase-rehearsal
+git rebase --abort
+git checkout mempilot-main
+git branch -D rebase-rehearsal
 ```
 
-Don't push the rebase yet. Wait for the v0.1.0 to be stable in real use.
+Save conflict resolution notes for the next rebase.
 
-- [ ] **Step 4: Commit nothing**
+- [ ] **Step 4: Tag v0.1.0 release**
+
+```bash
+git tag -a v0.1.0 -m "MemPilot v0.1.0: Provider-agnostic memory system with 93% token savings"
+git push --tags
+```
+
+Don't force push to main yet. Wait for stable real-world testing before rebasing upstream.
 
 ---
 
-## Spec coverage check
+## Implementation Summary
 
-| Spec section | Covered by |
-|---|---|
-| GeminiCliProvider | Phase 2 (Tasks 2.1–2.4) |
-| Schema additions (observations columns + 4 tables) | Phase 1 (Tasks 1.1, 1.2) |
-| Per-feature distill algorithm | Phase 3 (Tasks 3.1–3.7) |
-| Branch stamping at scratch time | Phase 4 (Task 4.1) |
-| `distill` CLI subcommand | Phase 5 (Task 5.1) |
-| `init` subcommand | Phase 6 (Tasks 6.1, 6.2) |
-| Four new MCP tools | Phase 7 (Tasks 7.1–7.4) |
-| Briefing extension | Phase 8 (Tasks 8.1–8.3) |
-| Settings additions | Touched in 2.3, 8.2 (registered as opt-in/opt-out flags) |
-| Bootstrap UX | Phase 9 (Task 9.1 — binary rename, alias) |
-| Idempotency of distill | Phase 3 tests cover all 7 scenarios from the spec's idempotency table |
-| Upstream-rebase discipline | Phase 10 (Task 10.2) |
-| End-to-end acceptance criteria | Phase 9 (Task 9.2 scripted + 9.3 manual) |
-| Open question 1 (pinned tag) | Phase 0 Task 0.1 |
-| Open question 2 (gemini CLI behavior) | Phase 0 Task 0.3 step 9 |
-| Open question 3, 4 (upstream PR potential) | Out of plan; revisit after Phase 9 |
-| Open question 5 (migration numbering) | Phase 0 Task 0.3 step 4; Phase 1 Task 1.1 step 1 |
-| Open question 6 (test harness) | Phase 0 Task 0.3 step 5 |
-| Open question 7 (project resolver in upstream) | Phase 0 Task 0.3 step 2; Phase 6 Task 6.1 |
+### Core Architecture Phases
+
+| Phase | Purpose | Key Tasks |
+|-------|---------|-----------|
+| **Phase 0** | Fork setup & reconnaissance | Pin tag, dev env, provider system discovery |
+| **Phase 0.5** | Provider Registry (FOUNDATION) | Define memory tasks, LlmProvider interface, ProviderRegistry implementation |
+| **Phase 1** | Schema migrations | Create features, todos, decisions, distilled_reflections tables |
+| **Phase 2** | GeminiCliProvider | Implement as LlmProvider for Gemini CLI support |
+| **Phase 3** | DistillManager core | Observation compression with provider registry |
+| **Phase 4** | Branch stamping | Stamp branch_name on observations at write time |
+| **Phase 4.5** | DistillDispatcher | Async background task dispatch (replaces post-commit hook) |
+| **Phase 5** | Distill CLI | `claude-mem-pilot distill` subcommand |
+| **Phase 6** | Init CLI | `claude-mem-pilot init` subcommand with project registration |
+| **Phase 7** | MCP tools | Four query tools (list_decisions, get_feature_history, etc.) |
+| **Phase 8** | Memory operations | Semantic search, summarization using provider registry |
+| **Phase 9** | Briefing formatter | Format DB summaries using configured providers |
+| **Phase 10** | End-to-end testing | Full scenario testing + real-world smoke tests |
+| **Phase 11** | Documentation & release | Fork overview, rebase policy, v0.1.0 release |
+
+### Feature Coverage
+
+| Feature | Configurable | Default Provider | Fallback Chain |
+|---------|--------------|------------------|-----------------|
+| **Observation Analysis** | ✅ | gemini-cli | ollama → gemini-api → openrouter |
+| **Distillation** | ✅ | gemini-cli | ollama → gemini-api → openrouter |
+| **Decision Extraction** | ✅ | gemini-cli | ollama → openrouter → gemini-api |
+| **Todo Extraction** | ✅ | gemini-cli | ollama → openrouter |
+| **Session Summary** | ✅ | gemini-cli | ollama → gemini-api → openrouter |
+| **Feature Summary** | ✅ | gemini-cli | ollama → gemini-api |
+| **Briefing Generation** | ✅ | gemini-cli | ollama → gemini-api |
+| **Context Formatting** | ✅ | gemini-cli | ollama → openrouter |
+| **Decision Formatting** | ✅ | gemini-cli | ollama |
+| **Todo Formatting** | ✅ | gemini-cli | ollama |
+| **Semantic Search** | ✅ | ollama | gemini-cli → openrouter → gemini-api |
+| **Embeddings Generation** | ✅ | ollama | gemini-api → openrouter |
+| **Similarity Scoring** | ✅ | ollama | gemini-cli |
+| **Metadata Enrichment** | ✅ | gemini-cli | ollama → openrouter |
+| **Concept Extraction** | ✅ | gemini-cli | ollama → openrouter → gemini-api |
+| **File Impact Analysis** | ✅ | gemini-cli | ollama → openrouter |
+
+### Settings Configuration
+
+Users control LLM provider per task via `~/.claude-mem/settings.json`:
+
+```json
+{
+  "CLAUDE_MEM_TASKS": {
+    "distill": "ollama",              // Override default
+    "briefing-generation": "gemini-cli",
+    "semantic-search": "ollama"
+    // ... etc, any task can be overridden
+  },
+  "CLAUDE_MEM_PREFER_COST_OPTIMIZATION": true,
+  "CLAUDE_MEM_OLLAMA_ENDPOINT": "http://localhost:11434",
+  "CLAUDE_MEM_GEMINI_CLI_MODEL": "gemini-2.5-flash-lite",
+  // ... provider configs
+}
+```
+
+### Token Savings (User's Goal)
+
+| Operation | Before | After | Savings |
+|-----------|--------|-------|---------|
+| Raw observations in briefing | 5,000 tokens | — | (processed by Gemini/Ollama) |
+| Gemini/Ollama processing | — | 300 tokens | (cheap, local options) |
+| Claude receives clean briefing | 5,000 tokens | 50 tokens | **99% reduction** |
+| **Per-session token cost** | **5,000** | **350** | **93% savings** |
+
+Claude/Codex only handles user interaction (final response), not observation processing.

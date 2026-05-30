@@ -1,6 +1,8 @@
 import { spawn, SpawnOptions } from 'child_process';
 import type { LlmProvider } from '../../shared/LlmProvider.js';
 import { logger } from '../../utils/logger.js';
+import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
+import { paths } from '../../shared/paths.js';
 
 export interface GeminiCliProviderOptions {
   binary?: string;       // default: 'gemini'
@@ -95,5 +97,53 @@ export class GeminiCliProvider implements LlmProvider {
 
   getSpeed(): 'fast' {
     return 'fast';
+  }
+}
+
+export function isGeminiCliSelected(): boolean {
+  const settingsPath = paths.settings();
+  const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
+  return settings.CLAUDE_MEM_PROVIDER === 'gemini-cli';
+}
+
+export async function isGeminiCliAvailable(): Promise<boolean> {
+  try {
+    const settingsPath = paths.settings();
+    const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
+    const binary = settings.CLAUDE_MEM_GEMINI_CLI_BINARY ?? 'gemini';
+
+    return new Promise((resolve) => {
+      try {
+        const proc = spawn(binary, ['--version'], { stdio: 'pipe', timeout: 1000 });
+        let completed = false;
+
+        proc.on('close', () => {
+          if (!completed) {
+            completed = true;
+            resolve(true);
+          }
+        });
+
+        proc.on('error', () => {
+          if (!completed) {
+            completed = true;
+            resolve(false);
+          }
+        });
+
+        // Timeout fallback
+        setTimeout(() => {
+          if (!completed) {
+            completed = true;
+            try { proc.kill(); } catch { }
+            resolve(false);
+          }
+        }, 1500);
+      } catch {
+        resolve(false);
+      }
+    });
+  } catch {
+    return false;
   }
 }
