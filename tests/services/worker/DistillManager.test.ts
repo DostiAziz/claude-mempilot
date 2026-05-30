@@ -298,4 +298,48 @@ describe('DistillManager.processBranch', () => {
     expect(second.distillId).not.toBe(first.distillId);
     expect(second.consumedObservationIds).toEqual([10]);
   });
+
+  it('marks feature as merged when commit is reachable from main', async () => {
+    const mockProvider = createMockProvider();
+    const mockRegistry2 = {
+      getForTask: async (task: string) => mockProvider,
+    } as any;
+
+    let mergeCheckCalled = false;
+    const manager = new DistillManager(db, mockRegistry2, {
+      debounceSeconds: 0,
+      debounceMinObservations: 1,
+      isReachableFromMain: async (sha: string) => {
+        mergeCheckCalled = true;
+        return sha === 'merged-sha';
+      },
+    });
+
+    seedProject();
+    seedSession();
+
+    // First distill on feature branch
+    const now = new Date().toISOString();
+    const nowEpoch = Math.floor(Date.now() / 1000);
+    db.prepare(
+      `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(10, '1', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
+
+    const first = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'feature-sha' });
+    let feature = db.query("SELECT * FROM features WHERE branch_name = 'feature/foo'").get() as any;
+    expect(feature.status).toBe('open');
+
+    // Add new obs and call with merged SHA
+    db.prepare(
+      `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(11, '1', 'feature/foo', 'obs2', 'content2', 'observation', now, nowEpoch, 'memory_session_1');
+
+    const second = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'merged-sha' });
+
+    feature = db.query("SELECT * FROM features WHERE branch_name = 'feature/foo'").get() as any;
+    expect(feature.status).toBe('merged');
+    expect(feature.merged_at).not.toBe(null);
+  });
 });

@@ -59,6 +59,10 @@ export class DistillManager {
     const xml = await this.distillObservations(candidates);
     const parsed = this.parseDistillOutput(xml);
 
+    // 5b. Check if commit is on main before the transaction
+    const project = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(input.projectId) as any;
+    const isMerged = project && await this.isCommitOnMain(project.root_path, input.commitSha);
+
     // 6. Write in a transaction
     let distillId: number | null = null;
     const newDecisionIds: number[] = [];
@@ -113,6 +117,13 @@ export class DistillManager {
         ).run(parsed.suggestedTitle, feature.id);
       }
 
+      // Mark feature as merged if commit is on main
+      if (isMerged) {
+        this.db.prepare(
+          "UPDATE features SET status = 'merged', merged_at = CURRENT_TIMESTAMP WHERE id = ? AND status != 'merged'",
+        ).run(feature.id);
+      }
+
       this.db.exec('COMMIT');
     } catch (err) {
       this.db.exec('ROLLBACK');
@@ -125,6 +136,19 @@ export class DistillManager {
       newDecisionIds,
       newTodoIds,
     };
+  }
+
+  private async isCommitOnMain(projectPath: string, commitSha: string): Promise<boolean> {
+    if (this.opts.isReachableFromMain) {
+      return await this.opts.isReachableFromMain(commitSha);
+    }
+    try {
+      const { execSync } = await import('child_process');
+      const out = execSync(`git -C "${projectPath}" branch --contains ${commitSha}`, { encoding: 'utf8' });
+      return /(^|\n)\*?\s*main$/.test(out);
+    } catch {
+      return false;
+    }
   }
 
   private parseDistillOutput(xml: string) {
