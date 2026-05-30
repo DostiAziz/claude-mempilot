@@ -36,6 +36,18 @@ describe('DistillManager.processBranch', () => {
     ).run(1, 'content_session_1', 'memory_session_1', 'test', new Date().toISOString(), now);
   };
 
+  const createMockProvider = () => ({
+    name: 'test',
+    model: 'test',
+    isAvailable: async () => true,
+    extract: async (input: any) => `<distill>
+      <body>Distill</body>
+      <decisions/>
+      <todos/>
+    </distill>`,
+    extractStructured: async (input: any) => ({ decisions: [] }),
+  });
+
   it('returns no-op when there are no observations on the branch', async () => {
     const manager = new DistillManager(db, mockRegistry);
 
@@ -150,16 +162,24 @@ describe('DistillManager.processBranch', () => {
     const first = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha1' });
     expect(first.distillId).not.toBe(null);
 
-    // Add new observation
+    // Add new observations (enough to exceed default debounce threshold of 3)
     db.prepare(
       `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(12, '1', 'feature/foo', 'o3', 'c3', 'observation', now, nowEpoch, 'memory_session_1');
+    db.prepare(
+      `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(13, '1', 'feature/foo', 'o4', 'c4', 'observation', now, nowEpoch, 'memory_session_1');
+    db.prepare(
+      `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(14, '1', 'feature/foo', 'o5', 'c5', 'observation', now, nowEpoch, 'memory_session_1');
 
     const second = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha2' });
     expect(second.distillId).not.toBe(null);
     expect(second.distillId).not.toBe(first.distillId);
-    expect(second.consumedObservationIds).toEqual([12]);
+    expect(second.consumedObservationIds).toEqual([12, 13, 14]);
 
     // Prior distill is superseded
     const priorRow = db.query("SELECT superseded_by FROM distilled_reflections WHERE id = ?").get(first.distillId) as any;
@@ -204,5 +224,44 @@ describe('DistillManager.processBranch', () => {
     const second = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha2' });
     expect(second.distillId).toBe(null);
     expect(extractCallCount).toBe(1);
+  });
+
+  it('skips distill when below debounce thresholds', async () => {
+    const mockProvider = createMockProvider();
+    const mockRegistry2 = {
+      getForTask: async (task: string) => mockProvider,
+    } as any;
+
+    const debounceManager = new DistillManager(db, mockRegistry2, {
+      debounceSeconds: 60,
+      debounceMinObservations: 3,
+    });
+
+    seedProject();
+    seedSession();
+
+    // Add several observations first
+    const now = new Date().toISOString();
+    const nowEpoch = Math.floor(Date.now() / 1000);
+    for (let i = 10; i < 13; i++) {
+      db.prepare(
+        `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(i, '1', 'feature/foo', `obs${i}`, `content${i}`, 'observation', now, nowEpoch, 'memory_session_1');
+    }
+
+    // First distill
+    const first = await debounceManager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha1' });
+    expect(first.distillId).not.toBe(null);
+
+    // Add just 1 new obs immediately (within debounce window)
+    db.prepare(
+      `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(13, '1', 'feature/foo', 'o3', 'c3', 'observation', now, nowEpoch, 'memory_session_1');
+
+    // Should be debounced
+    const second = await debounceManager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha2' });
+    expect(second.distillId).toBe(null);
   });
 });

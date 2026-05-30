@@ -16,10 +16,17 @@ export interface DistillOutput {
   newTodoIds: number[];
 }
 
+export interface DistillManagerOptions {
+  debounceSeconds?: number;
+  debounceMinObservations?: number;
+  isReachableFromMain?: (commitSha: string) => Promise<boolean>;
+}
+
 export class DistillManager {
   constructor(
     private db: Database,
     private providerRegistry: ProviderRegistry,
+    private opts: DistillManagerOptions = {},
   ) {}
 
   async processBranch(input: DistillInput): Promise<DistillOutput> {
@@ -37,6 +44,14 @@ export class DistillManager {
     // 4. Empty case: no-op
     if (candidates.length === 0 && !input.force) {
       return { distillId: null, consumedObservationIds: [], newDecisionIds: [], newTodoIds: [] };
+    }
+
+    // 4b. Debounce: skip if too few observations and prior distill is recent
+    if (!input.force && priorDistill && candidates.length < (this.opts.debounceMinObservations ?? 3)) {
+      const ageSeconds = (Date.now() - new Date(priorDistill.created_at).getTime()) / 1000;
+      if (ageSeconds < (this.opts.debounceSeconds ?? 60)) {
+        return { distillId: null, consumedObservationIds: [], newDecisionIds: [], newTodoIds: [] };
+      }
     }
 
     // 5. Call provider to distill observations
