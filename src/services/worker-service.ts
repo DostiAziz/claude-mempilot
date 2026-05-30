@@ -72,6 +72,7 @@ import { SSEBroadcaster } from './worker/SSEBroadcaster.js';
 import { ClaudeProvider, classifyClaudeError } from './worker/ClaudeProvider.js';
 import type { WorkerRef } from './worker/agents/types.js';
 import { GeminiProvider, classifyGeminiError, isGeminiSelected, isGeminiAvailable } from './worker/GeminiProvider.js';
+import { GeminiCliProvider } from './worker/GeminiCliProvider.js';
 import { OpenRouterProvider, classifyOpenRouterError, isOpenRouterSelected, isOpenRouterAvailable } from './worker/OpenRouterProvider.js';
 import { ClassifiedProviderError, isClassified, type ProviderErrorClass } from './worker/provider-errors.js';
 import { PaginationHelper } from './worker/PaginationHelper.js';

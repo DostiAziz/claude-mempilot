@@ -2,6 +2,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
+import type { MemoryTaskType, ProviderName } from './MemoryTaskRegistry.js';
 
 export interface SettingsDefaults {
   CLAUDE_MEM_MODEL: string;
@@ -9,13 +10,15 @@ export interface SettingsDefaults {
   CLAUDE_MEM_WORKER_PORT: string;
   CLAUDE_MEM_WORKER_HOST: string;
   CLAUDE_MEM_SKIP_TOOLS: string;
-  CLAUDE_MEM_PROVIDER: string;  
-  CLAUDE_MEM_CLAUDE_AUTH_METHOD: string;  
+  CLAUDE_MEM_PROVIDER: string;
+  CLAUDE_MEM_CLAUDE_AUTH_METHOD: string;
   CLAUDE_MEM_GEMINI_API_KEY: string;
-  CLAUDE_MEM_GEMINI_MODEL: string;  
-  CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: string;  
-  CLAUDE_MEM_GEMINI_MAX_CONTEXT_MESSAGES: string;  
-  CLAUDE_MEM_GEMINI_MAX_TOKENS: string;  
+  CLAUDE_MEM_GEMINI_MODEL: string;
+  CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: string;
+  CLAUDE_MEM_GEMINI_MAX_CONTEXT_MESSAGES: string;
+  CLAUDE_MEM_GEMINI_MAX_TOKENS: string;
+  CLAUDE_MEM_GEMINI_CLI_BINARY: string;
+  CLAUDE_MEM_GEMINI_CLI_MODEL: string;
   CLAUDE_MEM_OPENROUTER_API_KEY: string;
   CLAUDE_MEM_OPENROUTER_MODEL: string;
   CLAUDE_MEM_OPENROUTER_BASE_URL: string;
@@ -40,24 +43,24 @@ export interface SettingsDefaults {
   CLAUDE_MEM_CONTEXT_SHOW_TERMINAL_OUTPUT: string;
   CLAUDE_MEM_WELCOME_HINT_ENABLED: string;
   CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED: string;
-  CLAUDE_MEM_FOLDER_USE_LOCAL_MD: string;  
-  CLAUDE_MEM_TRANSCRIPTS_ENABLED: string;  
-  CLAUDE_MEM_TRANSCRIPTS_CONFIG_PATH: string;  
+  CLAUDE_MEM_FOLDER_USE_LOCAL_MD: string;
+  CLAUDE_MEM_TRANSCRIPTS_ENABLED: string;
+  CLAUDE_MEM_TRANSCRIPTS_CONFIG_PATH: string;
   CLAUDE_MEM_CODEX_TRANSCRIPT_INGESTION: string;
-  CLAUDE_MEM_MAX_CONCURRENT_AGENTS: string;  
-  CLAUDE_MEM_HOOK_FAIL_LOUD_THRESHOLD: string;  
-  CLAUDE_MEM_EXCLUDED_PROJECTS: string;  
+  CLAUDE_MEM_MAX_CONCURRENT_AGENTS: string;
+  CLAUDE_MEM_HOOK_FAIL_LOUD_THRESHOLD: string;
+  CLAUDE_MEM_EXCLUDED_PROJECTS: string;
   CLAUDE_MEM_FOLDER_MD_EXCLUDE: string;
   CLAUDE_MEM_FOLDER_MD_SKELETON_DENYLIST: string;
-  CLAUDE_MEM_SEMANTIC_INJECT: string;        
-  CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: string;  
+  CLAUDE_MEM_SEMANTIC_INJECT: string;
+  CLAUDE_MEM_SEMANTIC_INJECT_LIMIT: string;
   CLAUDE_MEM_TIER_ROUTING_ENABLED: string;
   CLAUDE_MEM_TIER_SIMPLE_MODEL: string;
   CLAUDE_MEM_TIER_SUMMARY_MODEL: string;
   CLAUDE_MEM_TIER_FAST_MODEL: string;        // #2289 — resolved by $TIER:fast in CLAUDE_MEM_MODEL
   CLAUDE_MEM_TIER_SMART_MODEL: string;       // #2289 — resolved by $TIER:smart in CLAUDE_MEM_MODEL
-  CLAUDE_MEM_CHROMA_ENABLED: string;   
-  CLAUDE_MEM_CHROMA_MODE: string;      
+  CLAUDE_MEM_CHROMA_ENABLED: string;
+  CLAUDE_MEM_CHROMA_MODE: string;
   CLAUDE_MEM_CHROMA_HOST: string;
   CLAUDE_MEM_CHROMA_PORT: string;
   CLAUDE_MEM_CHROMA_SSL: string;
@@ -80,6 +83,8 @@ export interface SettingsDefaults {
   CLAUDE_MEM_SERVER_BETA_URL: string;
   CLAUDE_MEM_SERVER_BETA_API_KEY: string;
   CLAUDE_MEM_SERVER_BETA_PROJECT_ID: string;
+  CLAUDE_MEM_TASKS: string;  // JSON string of Record<MemoryTaskType, ProviderName>
+  CLAUDE_MEM_PREFER_COST_OPTIMIZATION: string;
 }
 
 export class SettingsDefaultsManager {
@@ -96,6 +101,8 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_GEMINI_RATE_LIMITING_ENABLED: 'true',  // Rate limiting ON by default for free tier users
     CLAUDE_MEM_GEMINI_MAX_CONTEXT_MESSAGES: '20',  // Max messages in Gemini context window
     CLAUDE_MEM_GEMINI_MAX_TOKENS: '100000',  // Max estimated tokens (~100k safety limit)
+    CLAUDE_MEM_GEMINI_CLI_BINARY: 'gemini',  // Default path to gemini CLI binary
+    CLAUDE_MEM_GEMINI_CLI_MODEL: 'gemini-2.5-flash-lite',  // Default model for gemini CLI
     CLAUDE_MEM_OPENROUTER_API_KEY: '',  // Empty by default, can be set via UI or env
     CLAUDE_MEM_OPENROUTER_MODEL: 'xiaomi/mimo-v2-flash:free',  // Default OpenRouter model (free tier)
     CLAUDE_MEM_OPENROUTER_BASE_URL: '',  // #2382/#2590/#2622/#2393 — optional OpenAI-compatible base URL (e.g. https://api.deepseek.com, http://localhost:1234/v1). Empty = default OpenRouter endpoint.
@@ -160,6 +167,8 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_SERVER_BETA_URL: `http://127.0.0.1:${process.env.CLAUDE_MEM_SERVER_PORT ?? String(37877 + ((process.getuid?.() ?? 77) % 100))}`,  // Default server-beta runtime URL — UID-derived for multi-account isolation
     CLAUDE_MEM_SERVER_BETA_API_KEY: '',                     // Local hook API key, populated by installer when runtime=server-beta
     CLAUDE_MEM_SERVER_BETA_PROJECT_ID: '',                  // Default Postgres project_id used by hooks when runtime=server-beta
+    CLAUDE_MEM_TASKS: '{}',                                 // Empty = use defaults from MEMORY_TASK_DEFAULTS
+    CLAUDE_MEM_PREFER_COST_OPTIMIZATION: 'false',
   };
 
   static getAllDefaults(): SettingsDefaults {
