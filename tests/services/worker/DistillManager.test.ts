@@ -264,4 +264,38 @@ describe('DistillManager.processBranch', () => {
     const second = await debounceManager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha2' });
     expect(second.distillId).toBe(null);
   });
+
+  it('force=true re-processes all observations even when none are unclaimed', async () => {
+    const mockProvider = createMockProvider();
+    const mockRegistry2 = {
+      getForTask: async (task: string) => mockProvider,
+    } as any;
+
+    const manager = new DistillManager(db, mockRegistry2);
+
+    seedProject();
+    seedSession();
+
+    // Add observations and first distill
+    const now = new Date().toISOString();
+    const nowEpoch = Math.floor(Date.now() / 1000);
+    db.prepare(
+      `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(10, '1', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
+
+    const first = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha1' });
+    expect(first.distillId).not.toBe(null);
+
+    // Second call with force=true
+    const second = await manager.processBranch({
+      projectId: 1,
+      branch: 'feature/foo',
+      commitSha: 'sha2',
+      force: true,
+    });
+    expect(second.distillId).not.toBe(null);
+    expect(second.distillId).not.toBe(first.distillId);
+    expect(second.consumedObservationIds).toEqual([10]);
+  });
 });
