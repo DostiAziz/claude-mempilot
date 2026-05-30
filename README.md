@@ -1,3 +1,26 @@
+# MemPilot — fork of claude-mem
+
+This is a soft fork of [`thedotmack/claude-mem`](https://github.com/thedotmack/claude-mem)
+pinned at upstream tag `v13.4.0`. It adds:
+
+1. `GeminiCliProvider` — uses the local `gemini` CLI binary instead of the Gemini HTTP API.
+2. Per-feature distill on git post-commit — consolidates per-task observations into one per-feature reflection.
+3. `features` / `todos` / `decisions` first-class tables.
+4. Four new MCP tools: `list_decisions`, `get_feature_history`, `list_open_todos`, `list_features`.
+5. Extended briefing index with sections for the new entity types.
+
+**Design and plan:**
+- [Design spec](docs/specs/2026-05-30-mempilot-claude-mem-fork-design.md) — architecture, schema, distill algorithm
+- [Implementation plan](docs/plans/2026-05-30-mempilot-claude-mem-fork.md) — 10 phases, TDD, step-by-step
+- [Competitive analysis](docs/specs/2026-05-28-mempilot-competitive-analysis.md) — why this fork exists
+
+**Upstream remote:** `git remote add upstream https://github.com/thedotmack/claude-mem.git`
+**Working branch:** `mempilot-main` (branched from upstream tag `v13.4.0`)
+
+---
+
+# Below: upstream claude-mem README
+
 <h1 align="center">
   <br>
   <a href="https://github.com/thedotmack/claude-mem">
