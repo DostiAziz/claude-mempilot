@@ -120,6 +120,7 @@ export class SettingsRoutes extends BaseRouteHandler {
       'CLAUDE_MEM_GEMINI_CLI_BINARY',
       'CLAUDE_MEM_GEMINI_CLI_MODEL',
       'CLAUDE_MEM_PREFER_COST_OPTIMIZATION',
+      'CLAUDE_MEM_TASKS',
     ];
 
     for (const key of settingKeys) {

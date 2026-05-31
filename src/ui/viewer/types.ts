@@ -97,6 +97,7 @@ export interface Settings {
   CLAUDE_MEM_GEMINI_CLI_BINARY?: string;
   CLAUDE_MEM_GEMINI_CLI_MODEL?: string;
   CLAUDE_MEM_PREFER_COST_OPTIMIZATION?: string;
+  CLAUDE_MEM_TASKS?: string;
 }
 
 export interface WorkerStats {

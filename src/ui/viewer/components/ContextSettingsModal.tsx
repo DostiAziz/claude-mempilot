@@ -343,8 +343,15 @@ export function ContextSettingsModal({
                   <option value="claude">Claude (uses your Claude account)</option>
                   <option value="gemini">Gemini (uses API key)</option>
                   <option value="openrouter">OpenRouter (multi-model)</option>
+                  <option value="ollama">Ollama (local, no API key needed)</option>
                 </select>
               </FormField>
+
+              {formState.CLAUDE_MEM_PROVIDER === 'ollama' && (
+                <p style={{ fontSize: '0.85em', color: '#666', margin: '4px 0 8px' }}>
+                  Using Ollama endpoint and model configured below in Local/Free Providers.
+                </p>
+              )}
 
               {formState.CLAUDE_MEM_PROVIDER === 'claude' && (
                 <FormField
@@ -463,6 +470,35 @@ export function ContextSettingsModal({
                     checked={formState.CLAUDE_MEM_PREFER_COST_OPTIMIZATION === 'true'}
                     onChange={(checked) => updateSetting('CLAUDE_MEM_PREFER_COST_OPTIMIZATION', checked ? 'true' : 'false')}
                   />
+                </div>
+
+                <div style={{ marginBottom: '12px' }}>
+                  <button
+                    className="save-btn"
+                    style={{ width: '100%' }}
+                    onClick={() => {
+                      const allOllama = JSON.stringify({
+                        "observation-analysis":"ollama","distill":"ollama","decision-extraction":"ollama",
+                        "todo-extraction":"ollama","session-summary":"ollama","feature-summary":"ollama",
+                        "branch-summary":"ollama","briefing-generation":"ollama","context-formatting":"ollama",
+                        "decision-formatting":"ollama","todo-formatting":"ollama","semantic-search":"ollama",
+                        "embeddings-generation":"ollama","similarity-scoring":"ollama",
+                        "metadata-enrichment":"ollama","concept-extraction":"ollama","file-impact-analysis":"ollama"
+                      });
+                      updateSetting('CLAUDE_MEM_PROVIDER', 'ollama');
+                      updateSetting('CLAUDE_MEM_TASKS', allOllama);
+                      updateSetting('CLAUDE_MEM_PREFER_COST_OPTIMIZATION', 'true');
+                      if (!formState.OLLAMA_ENDPOINT) {
+                        updateSetting('OLLAMA_ENDPOINT', 'http://localhost:11434');
+                      }
+                    }}
+                    type="button"
+                  >
+                    Use Ollama for Everything
+                  </button>
+                  <p style={{ fontSize: '0.8em', color: '#888', marginTop: '4px', textAlign: 'center' }}>
+                    Sets Ollama as provider for observations AND all 17 distillation tasks
+                  </p>
                 </div>
 
                 {/* Ollama */}

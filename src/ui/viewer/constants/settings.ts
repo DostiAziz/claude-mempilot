@@ -33,4 +33,5 @@ export const DEFAULT_SETTINGS = {
   CLAUDE_MEM_GEMINI_CLI_BINARY: 'gemini',
   CLAUDE_MEM_GEMINI_CLI_MODEL: 'gemini-2.5-flash-lite',
   CLAUDE_MEM_PREFER_COST_OPTIMIZATION: 'false',
+  CLAUDE_MEM_TASKS: '{}',
 } as const;
