@@ -1,4 +1,5 @@
 import { Database, type SQLQueryBindings } from 'bun:sqlite';
+import { execSync } from 'child_process';
 import { DATA_DIR, DB_PATH, ensureDir, OBSERVER_SESSIONS_PROJECT } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 import {
@@ -1895,15 +1896,25 @@ export class SessionStore {
     const timestampEpoch = overrideTimestampEpoch ?? Date.now();
     const timestampIso = new Date(timestampEpoch).toISOString();
 
+    let branchName: string | null = null;
+    try {
+      const raw = execSync(`git -C "${project}" rev-parse --abbrev-ref HEAD`, {
+        encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim();
+      branchName = raw === 'HEAD' ? null : raw;
+    } catch {
+      branchName = null;
+    }
+
     const storeTx = this.db.transaction(() => {
       const observationIds: number[] = [];
 
       const obsStmt = this.db.prepare(`
         INSERT INTO observations
         (memory_session_id, project, type, title, subtitle, facts, narrative, concepts,
-         files_read, files_modified, prompt_number, discovery_tokens, agent_type, agent_id, content_hash, created_at, created_at_epoch,
+         files_read, files_modified, prompt_number, discovery_tokens, agent_type, agent_id, branch_name, content_hash, created_at, created_at_epoch,
          generated_by_model)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(memory_session_id, content_hash) DO NOTHING
         RETURNING id
       `);
@@ -1928,6 +1939,7 @@ export class SessionStore {
           discoveryTokens,
           observation.agent_type ?? null,
           observation.agent_id ?? null,
+          branchName,
           contentHash,
           timestampIso,
           timestampEpoch,

@@ -15,6 +15,7 @@ import { ChromaMcpManager } from './sync/ChromaMcpManager.js';
 import { ChromaSync } from './sync/ChromaSync.js';
 import { configureSupervisorSignalHandlers, getSupervisor, startSupervisor } from '../supervisor/index.js';
 import { sanitizeEnv } from '../supervisor/env-sanitizer.js';
+import { ProviderRegistry } from '../shared/ProviderRegistry.js';
 
 import { ensureWorkerStarted as ensureWorkerStartedShared, type WorkerStartResult } from './worker-spawner.js';
 
@@ -309,6 +310,9 @@ export class WorkerService implements WorkerRef {
       const { USER_SETTINGS_PATH } = await import('../shared/paths.js');
 
       const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+
+      const providerRegistry = new ProviderRegistry(settings);
+      this.dbManager.setProviderRegistry(providerRegistry);
 
       const modeId = settings.CLAUDE_MEM_MODE;
       ModeManager.getInstance().loadMode(modeId);

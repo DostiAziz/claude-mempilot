@@ -85,6 +85,8 @@ export interface SettingsDefaults {
   CLAUDE_MEM_SERVER_BETA_PROJECT_ID: string;
   CLAUDE_MEM_TASKS: string;  // JSON string of Record<MemoryTaskType, ProviderName>
   CLAUDE_MEM_PREFER_COST_OPTIMIZATION: string;
+  OLLAMA_ENDPOINT: string;
+  OLLAMA_MODEL: string;
 }
 
 export class SettingsDefaultsManager {
@@ -169,6 +171,8 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_SERVER_BETA_PROJECT_ID: '',                  // Default Postgres project_id used by hooks when runtime=server-beta
     CLAUDE_MEM_TASKS: '{}',                                 // Empty = use defaults from MEMORY_TASK_DEFAULTS
     CLAUDE_MEM_PREFER_COST_OPTIMIZATION: 'false',
+    OLLAMA_ENDPOINT: '',                                    // Empty = Ollama disabled
+    OLLAMA_MODEL: 'gpt-oss:20b',
   };
 
   static getAllDefaults(): SettingsDefaults {

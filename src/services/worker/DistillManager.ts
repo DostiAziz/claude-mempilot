@@ -55,7 +55,7 @@ export class DistillManager {
     }
 
     // 5. Call provider to distill observations
-    const prompt = this.buildDistillPrompt(candidates);
+    const provider = await this.providerRegistry.getForTask('distill');
     const xml = await this.distillObservations(candidates);
     const parsed = this.parseDistillOutput(xml);
 
@@ -68,13 +68,15 @@ export class DistillManager {
     const newDecisionIds: number[] = [];
     const newTodoIds: number[] = [];
 
+    const providerName = (provider as any).constructor.name;
+
     this.db.exec('BEGIN');
     try {
       const insertResult = this.db.prepare(
         `INSERT INTO distilled_reflections
           (feature_id, commit_sha_at_distill, consumed_observation_ids, body_md, llm_model_used)
          VALUES (?, ?, ?, ?, ?)`,
-      ).run(feature.id, input.commitSha, JSON.stringify(candidates.map((c: any) => c.id)), parsed.body, 'gemini-cli');
+      ).run(feature.id, input.commitSha, JSON.stringify(candidates.map((c: any) => c.id)), parsed.body, providerName);
 
       distillId = (insertResult.lastInsertRowid as number) || null;
 
@@ -188,24 +190,29 @@ export class DistillManager {
   }
 
   private async unclaimedObservationsSince(projectId: number, branch: string, since?: string): Promise<any[]> {
+    const project = this.db.prepare('SELECT id, name FROM projects WHERE id = ?').get(projectId) as any;
+    if (!project) return [];
+
     if (since) {
       return this.db.prepare(
         `SELECT * FROM observations
           WHERE project = ? AND branch_name = ? AND feature_id IS NULL AND created_at > ?
           ORDER BY created_at`,
-      ).all(String(projectId), branch, since) as any[];
+      ).all(project.name, branch, since) as any[];
     }
     return this.db.prepare(
       `SELECT * FROM observations
         WHERE project = ? AND branch_name = ? AND feature_id IS NULL
         ORDER BY created_at`,
-    ).all(String(projectId), branch) as any[];
+    ).all(project.name, branch) as any[];
   }
 
   private async allObservationsForBranch(projectId: number, branch: string): Promise<any[]> {
+    const project = this.db.prepare('SELECT id, name FROM projects WHERE id = ?').get(projectId) as any;
+    if (!project) return [];
     return this.db.prepare(
       'SELECT * FROM observations WHERE project = ? AND branch_name = ? ORDER BY created_at',
-    ).all(String(projectId), branch) as any[];
+    ).all(project.name, branch) as any[];
   }
 
   private async distillObservations(observations: any[]): Promise<string> {
@@ -231,6 +238,9 @@ export class DistillManager {
   }
 
   private buildDistillPrompt(observations: any[]): string {
-    return observations.map(o => `- ${o.title}: ${o.text}`).join('\n');
+    return observations.map(o => {
+      const content = o.narrative || o.subtitle || '(no content)';
+      return `- ${o.type}: ${o.title}\n  ${content}`;
+    }).join('\n\n');
   }
 }

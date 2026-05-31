@@ -3,6 +3,7 @@ import express, { Request, Response, Application } from 'express';
 import http from 'http';
 import * as fs from 'fs';
 import path from 'path';
+import { homedir } from 'os';
 import { ALLOWED_OPERATIONS, ALLOWED_TOPICS } from './allowed-constants.js';
 import { logger } from '../../utils/logger.js';
 import { createCorsMiddleware, createMiddleware, summarizeRequestBody, requireLocalhost } from './Middleware.js';
@@ -207,6 +208,40 @@ export class Server {
   }
 
   private setupCoreRoutes(): void {
+    // Serve UI - find viewer.html in installed plugin location
+    const uiDir = path.join(
+      homedir(),
+      '.claude/plugins/marketplaces/thedotmack/plugin/ui'
+    );
+
+    if (fs.existsSync(uiDir)) {
+      // Serve viewer.html directly (before static middleware that would redirect)
+      this.app.get('/ui', (_req: Request, res: Response) => {
+        try {
+          const viewerPath = path.join(uiDir, 'viewer.html');
+          const content = fs.readFileSync(viewerPath, 'utf-8');
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.send(content);
+        } catch (e) {
+          res.status(500).json({ error: 'Failed to load UI' });
+        }
+      });
+
+      this.app.get('/ui/', (_req: Request, res: Response) => {
+        try {
+          const viewerPath = path.join(uiDir, 'viewer.html');
+          const content = fs.readFileSync(viewerPath, 'utf-8');
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.send(content);
+        } catch (e) {
+          res.status(500).json({ error: 'Failed to load UI' });
+        }
+      });
+
+      // Serve static assets (JS, CSS, fonts, etc)
+      this.app.use('/ui', express.static(uiDir));
+    }
+
     this.app.get('/api/health', async (_req: Request, res: Response) => {
       const queueHealth = this.options.getQueueHealth
         ? await this.options.getQueueHealth()

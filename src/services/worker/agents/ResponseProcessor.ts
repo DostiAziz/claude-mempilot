@@ -1,4 +1,5 @@
 
+import { execSync } from 'child_process';
 import { logger } from '../../../utils/logger.js';
 import { parseAgentXml, type ParsedObservation, type ParsedSummary } from '../../../sdk/parser.js';
 import { classifyObserverOutput, previewOutput } from '../../../sdk/output-classifier.js';
@@ -10,6 +11,7 @@ import { updateFolderClaudeMdFiles } from '../../../utils/claude-md-utils.js';
 import { getWorkerPort } from '../../../shared/worker-utils.js';
 import { SettingsDefaultsManager } from '../../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../../shared/paths.js';
+import { DistillManager } from '../DistillManager.js';
 import type { ActiveSession } from '../../worker-types.js';
 import type { DatabaseManager } from '../DatabaseManager.js';
 import type { SessionManager } from '../SessionManager.js';
@@ -202,6 +204,76 @@ export async function processAgentResponse(
     agentName,
     projectRoot
   );
+
+  // Fire-and-forget distillation: runs async, never blocks observation write
+  const providerRegistry = dbManager.getProviderRegistry();
+  logger.debug('DISTILL', 'Fire-and-forget check', {
+    hasRegistry: !!providerRegistry,
+    obsCount: result.observationIds.length,
+    hasProjectRoot: !!projectRoot,
+  });
+  if (providerRegistry && result.observationIds.length > 0 && projectRoot) {
+    logger.info('DISTILL', 'Starting fire-and-forget distillation', {
+      sessionId: session.sessionDbId,
+      obsCount: result.observationIds.length,
+      projectRoot,
+    });
+    void (async () => {
+      try {
+        const db = dbManager.getConnection();
+
+        // Upsert project row, get integer rowid
+        db.prepare(
+          `INSERT OR IGNORE INTO projects (id, name, root_path, metadata, created_at_epoch, updated_at_epoch)
+           VALUES (lower(hex(randomblob(16))), ?, ?, '{}', ?, ?)`
+        ).run(session.project, projectRoot, Date.now(), Date.now());
+        const projectRow = db.prepare('SELECT rowid FROM projects WHERE root_path = ?').get(projectRoot) as { rowid: number } | null;
+        if (!projectRow) return;
+
+        // Resolve branch and commit SHA
+        let branchName: string | null = null;
+        let commitSha = '';
+        try {
+          const raw = execSync(`git -C "${projectRoot}" rev-parse --abbrev-ref HEAD`, {
+            encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
+          }).trim();
+          branchName = raw === 'HEAD' ? null : raw;
+          commitSha = execSync(`git -C "${projectRoot}" rev-parse HEAD`, {
+            encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
+          }).trim();
+        } catch { /* non-git repo or git error, skip */ }
+
+        if (!branchName) return;
+
+        const distillManager = new DistillManager(db, providerRegistry, {
+          debounceSeconds: 60,
+          debounceMinObservations: 3,
+        });
+
+        const distillOutput = await distillManager.processBranch({
+          projectId: projectRow.rowid,
+          branch: branchName,
+          commitSha,
+        });
+
+        if (distillOutput.distillId !== null) {
+          logger.info('DISTILL', 'Distillation complete', {
+            sessionId: session.sessionDbId,
+            branch: branchName,
+            distillId: distillOutput.distillId,
+            consumed: distillOutput.consumedObservationIds.length,
+            decisions: distillOutput.newDecisionIds.length,
+            todos: distillOutput.newTodoIds.length,
+          });
+        }
+      } catch (err) {
+        logger.warn('DISTILL', 'Distillation failed (non-critical)', {
+          sessionId: session.sessionDbId,
+          project: session.project,
+        }, err instanceof Error ? err : new Error(String(err)));
+      }
+    })();
+  }
 
   await syncAndBroadcastSummary(
     summary,

@@ -3,20 +3,26 @@ import { Database } from 'bun:sqlite';
 import { SessionStore } from '../sqlite/SessionStore.js';
 import { SessionSearch } from '../sqlite/SessionSearch.js';
 import { ChromaSync } from '../sync/ChromaSync.js';
+import { MigrationRunner } from '../sqlite/migrations/runner.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH, DB_PATH } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 import type { DBSession } from '../worker-types.js';
+import type { ProviderRegistry } from '../../shared/ProviderRegistry.js';
 
 export class DatabaseManager {
   private db: Database | null = null;
   private sessionStore: SessionStore | null = null;
   private sessionSearch: SessionSearch | null = null;
   private chromaSync: ChromaSync | null = null;
+  private providerRegistry: ProviderRegistry | null = null;
 
   async initialize(): Promise<void> {
     this.db = new Database(DB_PATH);
-    
+
+    const migrationRunner = new MigrationRunner(this.db);
+    migrationRunner.runAllMigrations();
+
     this.sessionStore = new SessionStore(this.db);
     this.sessionSearch = new SessionSearch(this.db);
 
@@ -63,6 +69,14 @@ export class DatabaseManager {
 
   getChromaSync(): ChromaSync | null {
     return this.chromaSync;
+  }
+
+  setProviderRegistry(registry: ProviderRegistry): void {
+    this.providerRegistry = registry;
+  }
+
+  getProviderRegistry(): ProviderRegistry | null {
+    return this.providerRegistry;
   }
 
   getConnection(): Database {

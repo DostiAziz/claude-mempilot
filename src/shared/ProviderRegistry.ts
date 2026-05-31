@@ -5,6 +5,8 @@ import {
   ProviderName,
 } from './MemoryTaskRegistry.js';
 import type { SettingsDefaults } from './SettingsDefaultsManager.js';
+import { OllamaProvider } from '../services/worker/OllamaProvider.js';
+import { GeminiCliProvider } from '../services/worker/GeminiCliProvider.js';
 
 export class ProviderRegistry {
   private providers: Map<ProviderName, LlmProvider> = new Map();
@@ -20,9 +22,14 @@ export class ProviderRegistry {
   }
 
   private registerProviders(settings: SettingsDefaults) {
-    // Register providers based on settings (e.g., from env vars or settings.json)
-    // For now, this is a stub that subagent will populate per upstream's provider system
-    // Each provider (Claude, Gemini, OpenRouter) will be registered based on availability
+    const ollamaEndpoint = (settings.OLLAMA_ENDPOINT as string | undefined)?.trim();
+    if (ollamaEndpoint) {
+      const ollamaModel = (settings.OLLAMA_MODEL as string | undefined)?.trim() || 'gpt-oss:20b';
+      this.registerProvider(new OllamaProvider({ endpoint: ollamaEndpoint, model: ollamaModel }));
+    }
+    const geminiCliBinary = settings.CLAUDE_MEM_GEMINI_CLI_BINARY?.trim() || 'gemini';
+    const geminiCliModel = settings.CLAUDE_MEM_GEMINI_CLI_MODEL?.trim() || 'gemini-2.5-flash-lite';
+    this.registerProvider(new GeminiCliProvider({ binary: geminiCliBinary, model: geminiCliModel }));
   }
 
   private loadTaskOverrides(settings: SettingsDefaults) {
