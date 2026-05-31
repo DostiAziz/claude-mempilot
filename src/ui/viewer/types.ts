@@ -91,6 +91,12 @@ export interface Settings {
 
   CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY?: string;
   CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE?: string;
+
+  OLLAMA_ENDPOINT?: string;
+  OLLAMA_MODEL?: string;
+  CLAUDE_MEM_GEMINI_CLI_BINARY?: string;
+  CLAUDE_MEM_GEMINI_CLI_MODEL?: string;
+  CLAUDE_MEM_PREFER_COST_OPTIMIZATION?: string;
 }
 
 export interface WorkerStats {

@@ -476,6 +476,97 @@ export function ContextSettingsModal({
                 />
               </div>
             </CollapsibleSection>
+
+            {/* Section 6: Distillation Providers */}
+            <CollapsibleSection
+              title="Distillation Providers"
+              description="Local and free AI providers for memory distillation"
+              defaultOpen={false}
+            >
+              {/* Cost Optimization toggle */}
+              <div className="toggle-group" style={{ marginBottom: '12px' }}>
+                <ToggleSwitch
+                  id="prefer-cost-optimization"
+                  label="Prefer Cost Optimization"
+                  description="Route distillation tasks to lowest-cost available provider (Ollama first, then Gemini CLI)"
+                  checked={formState.CLAUDE_MEM_PREFER_COST_OPTIMIZATION === 'true'}
+                  onChange={(checked) => updateSetting('CLAUDE_MEM_PREFER_COST_OPTIMIZATION', checked ? 'true' : 'false')}
+                />
+              </div>
+
+              {/* Ollama sub-section */}
+              <div className="display-subsection">
+                <span className="subsection-label">Ollama</span>
+                <div className="toggle-group" style={{ marginBottom: '8px' }}>
+                  <ToggleSwitch
+                    id="ollama-enable"
+                    label="Enable Ollama"
+                    description="Connect to a local Ollama instance for free on-device inference"
+                    checked={(formState.OLLAMA_ENDPOINT ?? '') !== ''}
+                    onChange={(checked) => {
+                      if (!checked) {
+                        updateSetting('OLLAMA_ENDPOINT', '');
+                      } else {
+                        updateSetting('OLLAMA_ENDPOINT', 'http://localhost:11434');
+                      }
+                    }}
+                  />
+                </div>
+                {(formState.OLLAMA_ENDPOINT ?? '') !== '' && (
+                  <>
+                    <FormField
+                      label="Endpoint URL"
+                      tooltip="Base URL of your Ollama server (e.g., http://localhost:11434)"
+                    >
+                      <input
+                        type="text"
+                        value={formState.OLLAMA_ENDPOINT ?? ''}
+                        onChange={(e) => updateSetting('OLLAMA_ENDPOINT', e.target.value)}
+                        placeholder="http://localhost:11434"
+                      />
+                    </FormField>
+                    <FormField
+                      label="Model"
+                      tooltip="Ollama model name to use for distillation"
+                    >
+                      <input
+                        type="text"
+                        value={formState.OLLAMA_MODEL ?? 'gpt-oss:20b'}
+                        onChange={(e) => updateSetting('OLLAMA_MODEL', e.target.value)}
+                        placeholder="gpt-oss:20b"
+                      />
+                    </FormField>
+                  </>
+                )}
+              </div>
+
+              {/* Gemini CLI sub-section */}
+              <div className="display-subsection">
+                <span className="subsection-label">Gemini CLI</span>
+                <FormField
+                  label="Binary Path"
+                  tooltip="Path to the gemini CLI binary (default: 'gemini' on PATH)"
+                >
+                  <input
+                    type="text"
+                    value={formState.CLAUDE_MEM_GEMINI_CLI_BINARY ?? 'gemini'}
+                    onChange={(e) => updateSetting('CLAUDE_MEM_GEMINI_CLI_BINARY', e.target.value)}
+                    placeholder="gemini"
+                  />
+                </FormField>
+                <FormField
+                  label="Model"
+                  tooltip="Gemini model to pass to the CLI"
+                >
+                  <input
+                    type="text"
+                    value={formState.CLAUDE_MEM_GEMINI_CLI_MODEL ?? 'gemini-2.5-flash-lite'}
+                    onChange={(e) => updateSetting('CLAUDE_MEM_GEMINI_CLI_MODEL', e.target.value)}
+                    placeholder="gemini-2.5-flash-lite"
+                  />
+                </FormField>
+              </div>
+            </CollapsibleSection>
           </div>
         </div>
 

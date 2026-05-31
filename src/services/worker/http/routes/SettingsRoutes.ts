@@ -115,6 +115,11 @@ export class SettingsRoutes extends BaseRouteHandler {
       'CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY',
       'CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE',
       'CLAUDE_MEM_FOLDER_CLAUDEMD_ENABLED',
+      'OLLAMA_ENDPOINT',
+      'OLLAMA_MODEL',
+      'CLAUDE_MEM_GEMINI_CLI_BINARY',
+      'CLAUDE_MEM_GEMINI_CLI_MODEL',
+      'CLAUDE_MEM_PREFER_COST_OPTIMIZATION',
     ];
 
     for (const key of settingKeys) {
@@ -266,6 +271,7 @@ export class SettingsRoutes extends BaseRouteHandler {
       'CLAUDE_MEM_CONTEXT_SHOW_SAVINGS_PERCENT',
       'CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY',
       'CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE',
+      'CLAUDE_MEM_PREFER_COST_OPTIMIZATION',
     ];
 
     for (const key of booleanSettings) {
@@ -314,6 +320,15 @@ export class SettingsRoutes extends BaseRouteHandler {
       } catch (error) {
         logger.debug('SETTINGS', 'Invalid URL format', { url: settings.CLAUDE_MEM_OPENROUTER_SITE_URL, error: error instanceof Error ? error.message : String(error) });
         return { valid: false, error: 'CLAUDE_MEM_OPENROUTER_SITE_URL must be a valid URL' };
+      }
+    }
+
+    if (settings.OLLAMA_ENDPOINT) {
+      try {
+        new URL(settings.OLLAMA_ENDPOINT);
+      } catch (error) {
+        logger.debug('SETTINGS', 'Invalid Ollama endpoint URL', { url: settings.OLLAMA_ENDPOINT, error: error instanceof Error ? error.message : String(error) });
+        return { valid: false, error: 'OLLAMA_ENDPOINT must be a valid URL (e.g., http://localhost:11434)' };
       }
     }
 
