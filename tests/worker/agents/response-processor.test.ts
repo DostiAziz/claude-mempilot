@@ -72,6 +72,8 @@ describe('ResponseProcessor', () => {
         syncObservation: mockChromaSyncObservation,
         syncSummary: mockChromaSyncSummary,
       }),
+      getProviderRegistry: () => null,
+      getConnection: () => ({}),
     } as unknown as DatabaseManager;
 
     mockSessionManager = {

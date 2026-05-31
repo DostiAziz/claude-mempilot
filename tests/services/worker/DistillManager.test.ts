@@ -101,12 +101,12 @@ describe('DistillManager.processBranch', () => {
     db.prepare(
       `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(10, '1', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
+    ).run(10, 'test', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
 
     db.prepare(
       `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(11, '1', 'feature/foo', 'obs2', 'content2', 'observation', now, nowEpoch, 'memory_session_1');
+    ).run(11, 'test', 'feature/foo', 'obs2', 'content2', 'observation', now, nowEpoch, 'memory_session_1');
 
     const result = await manager.processBranch({
       projectId: 1,

@@ -87,7 +87,19 @@ describe('ProviderRegistry', () => {
   });
 
   it('throws when no provider is available for task', async () => {
+    const unavailableGemini: LlmProvider = {
+      ...mockGemini,
+      isAvailable: async () => false,
+    };
+    const unavailableOllama: LlmProvider = {
+      ...mockOllama,
+      isAvailable: async () => false,
+    };
+
     const emptyRegistry = new ProviderRegistry(defaultSettings);
+    // Clear auto-registered providers and register only unavailable ones
+    emptyRegistry.registerProvider(unavailableGemini);
+    emptyRegistry.registerProvider(unavailableOllama);
 
     try {
       await emptyRegistry.getForTask('distill');
