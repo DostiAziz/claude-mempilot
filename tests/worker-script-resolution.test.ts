@@ -147,7 +147,7 @@ describe('inline bootstrap resolvers stay in lockstep', () => {
     notFoundMessage: 'claude-mem: mcp server not found',
     mcpExtraCandidates: ['$PWD/plugin', '$PWD'],
     mcpExtraCacheRoots: [
-      '$HOME/.codex/plugins/cache/claude-mem-local/claude-mem',
+      '$HOME/.codex/plugins/cache/claude-mem-local/mempilot',
       '$HOME/.codex/plugins/cache/thedotmack/claude-mem',
     ],
   });

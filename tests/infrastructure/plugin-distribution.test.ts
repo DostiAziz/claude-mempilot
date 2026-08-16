@@ -145,7 +145,7 @@ describe('Plugin Distribution - Codex Marketplace', () => {
     const mcp = JSON.parse(readFileSync(mcpPath, 'utf-8'));
     const command = mcp.mcpServers['mcp-search'].args.join(' ');
 
-    expect(command).toContain('.codex/plugins/cache/claude-mem-local/claude-mem');
+    expect(command).toContain('.codex/plugins/cache/claude-mem-local/mempilot');
     expect(command).toContain('plugins/cache/thedotmack/claude-mem');
     expect(command).toContain('claude-mem: mcp server not found');
   });
@@ -390,7 +390,7 @@ const MCP_EXPECTED = buildShellCommand({
   notFoundMessage: 'claude-mem: mcp server not found',
   mcpExtraCandidates: ['$PWD/plugin', '$PWD'],
   mcpExtraCacheRoots: [
-    '$HOME/.codex/plugins/cache/claude-mem-local/claude-mem',
+    '$HOME/.codex/plugins/cache/claude-mem-local/mempilot',
     '$HOME/.codex/plugins/cache/thedotmack/claude-mem',
   ],
 });
