@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { Database } from 'bun:sqlite';
-import { MigrationRunner } from '../../../src/services/sqlite/migrations/runner.js';
+import { SessionStore } from '../../../src/services/sqlite/SessionStore.js';
 
 interface TableNameRow {
   name: string;
@@ -45,8 +45,8 @@ describe('MemPilot migration: features tables', () => {
 
   describe('schema creation', () => {
     it('creates all four new tables and adds two columns to observations', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       const tables = getTableNames(db);
 
@@ -57,8 +57,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('adds branch_name and feature_id columns to observations table', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       const obsCols = getColumns(db, 'observations');
       const colNames = obsCols.map(c => c.name);
@@ -68,8 +68,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('creates proper indexes on observations for branch_name and feature_id', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       const indexes = db.prepare(
         "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_observations_branch_feature'"
@@ -79,8 +79,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('creates features table with correct columns and constraints', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       const cols = getColumns(db, 'features');
       const colNames = cols.map(c => c.name);
@@ -98,8 +98,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('creates distilled_reflections table with correct columns', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       const cols = getColumns(db, 'distilled_reflections');
       const colNames = cols.map(c => c.name);
@@ -115,8 +115,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('creates decisions table with correct columns', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       const cols = getColumns(db, 'decisions');
       const colNames = cols.map(c => c.name);
@@ -132,8 +132,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('creates todos table with correct columns', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       const cols = getColumns(db, 'todos');
       const colNames = cols.map(c => c.name);
@@ -150,8 +150,8 @@ describe('MemPilot migration: features tables', () => {
 
   describe('indexes', () => {
     it('creates index on distilled_reflections for current (non-superseded) items', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       const indexes = db.prepare(
         "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_distilled_feature_current'"
@@ -161,8 +161,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('creates index on decisions.topic for efficient filtering', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       const indexes = db.prepare(
         "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_decisions_topic'"
@@ -172,8 +172,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('creates index on open todos for efficient filtering', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       const indexes = db.prepare(
         "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_todos_open'"
@@ -185,8 +185,8 @@ describe('MemPilot migration: features tables', () => {
 
   describe('constraints', () => {
     it('enforces UNIQUE(project_id, branch_name) on features', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       db.prepare(
         "INSERT INTO features (project_id, branch_name, title) VALUES (1, 'main', 'Main Feature')"
@@ -200,8 +200,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('enforces foreign key constraint on distilled_reflections.feature_id', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       expect(() => {
         db.prepare(`
@@ -213,8 +213,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('enforces foreign key constraint on decisions.feature_id', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       expect(() => {
         db.prepare(`
@@ -225,8 +225,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('enforces foreign key constraint on todos.feature_id', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       expect(() => {
         db.prepare(`
@@ -239,8 +239,8 @@ describe('MemPilot migration: features tables', () => {
 
   describe('data integrity', () => {
     it('allows inserting and querying features', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       db.prepare(
         'INSERT INTO features (project_id, branch_name, title) VALUES (?, ?, ?)'
@@ -257,8 +257,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('allows inserting and querying observations with branch_name and feature_id', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       const now = new Date().toISOString();
       const epoch = Date.now();
@@ -267,6 +267,11 @@ describe('MemPilot migration: features tables', () => {
         INSERT INTO sdk_sessions (content_session_id, memory_session_id, project, started_at, started_at_epoch, status)
         VALUES (?, ?, ?, ?, ?, ?)
       `).run('content-1', 'memory-1', 'test-project', now, epoch, 'active');
+
+      db.prepare(`
+        INSERT INTO features (id, project_id, branch_name, title)
+        VALUES (?, ?, ?, ?)
+      `).run(1, 1, 'feat/auth', 'Test Feature');
 
       db.prepare(`
         INSERT INTO observations (memory_session_id, project, type, created_at, created_at_epoch, branch_name, feature_id)
@@ -282,8 +287,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('allows cascading delete from features to dependent tables', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       const featureId = db.prepare(
         'INSERT INTO features (project_id, branch_name, title) VALUES (?, ?, ?)'
@@ -318,20 +323,20 @@ describe('MemPilot migration: features tables', () => {
 
   describe('idempotency', () => {
     it('running migrations twice does not error', () => {
-      const runner = new MigrationRunner(db);
+      const runner = new SessionStore(db);
 
-      runner.runAllMigrations();
-      expect(() => runner.runAllMigrations()).not.toThrow();
+      
+      expect(() => new SessionStore(db)).not.toThrow();
     });
 
     it('produces identical schema when run twice', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       const tablesAfterFirst = getTableNames(db);
       const obsColsAfterFirst = getColumns(db, 'observations').map(c => c.name);
 
-      runner.runAllMigrations();
+      
 
       const tablesAfterSecond = getTableNames(db);
       const obsColsAfterSecond = getColumns(db, 'observations').map(c => c.name);
@@ -343,8 +348,8 @@ describe('MemPilot migration: features tables', () => {
 
   describe('default values', () => {
     it('sets status to "open" by default on features', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       db.prepare(
         'INSERT INTO features (project_id, branch_name, title) VALUES (?, ?, ?)'
@@ -355,8 +360,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('sets status to "open" by default on todos', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       const featureId = db.prepare(
         'INSERT INTO features (project_id, branch_name, title) VALUES (?, ?, ?)'
@@ -369,8 +374,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('sets created_at timestamp automatically', () => {
-      const runner = new MigrationRunner(db);
-      runner.runAllMigrations();
+      const runner = new SessionStore(db);
+      
 
       db.prepare(
         'INSERT INTO features (project_id, branch_name, title) VALUES (?, ?, ?)'

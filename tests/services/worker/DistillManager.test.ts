@@ -23,9 +23,17 @@ describe('DistillManager.processBranch', () => {
   });
 
   const seedProject = () => {
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    const { execSync } = require('child_process');
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'distill-test-'));
+    execSync('git init', { cwd: tempDir });
+    execSync('git commit --allow-empty -m "init"', { cwd: tempDir });
+    execSync('git branch -m main', { cwd: tempDir });
     const now = Math.floor(Date.now() / 1000);
     db.prepare("INSERT INTO projects (id, name, root_path, metadata, created_at_epoch, updated_at_epoch) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(1, 'test', '/tmp/x', '{}', now, now);
+      .run(1, 'test', tempDir, '{}', now, now);
   };
 
   const seedSession = () => {
@@ -157,7 +165,7 @@ describe('DistillManager.processBranch', () => {
     db.prepare(
       `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(10, '1', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
+    ).run(10, 'test', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
 
     const first = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha1' });
     expect(first.distillId).not.toBe(null);
@@ -166,15 +174,15 @@ describe('DistillManager.processBranch', () => {
     db.prepare(
       `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(12, '1', 'feature/foo', 'o3', 'c3', 'observation', now, nowEpoch, 'memory_session_1');
+    ).run(12, 'test', 'feature/foo', 'o3', 'c3', 'observation', now, nowEpoch, 'memory_session_1');
     db.prepare(
       `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(13, '1', 'feature/foo', 'o4', 'c4', 'observation', now, nowEpoch, 'memory_session_1');
+    ).run(13, 'test', 'feature/foo', 'o4', 'c4', 'observation', now, nowEpoch, 'memory_session_1');
     db.prepare(
       `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(14, '1', 'feature/foo', 'o5', 'c5', 'observation', now, nowEpoch, 'memory_session_1');
+    ).run(14, 'test', 'feature/foo', 'o5', 'c5', 'observation', now, nowEpoch, 'memory_session_1');
 
     const second = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha2' });
     expect(second.distillId).not.toBe(null);
@@ -217,7 +225,7 @@ describe('DistillManager.processBranch', () => {
     db.prepare(
       `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(10, '1', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
+    ).run(10, 'test', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
 
     const first = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha1' });
 
@@ -247,7 +255,7 @@ describe('DistillManager.processBranch', () => {
       db.prepare(
         `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(i, '1', 'feature/foo', `obs${i}`, `content${i}`, 'observation', now, nowEpoch, 'memory_session_1');
+      ).run(i, 'test', 'feature/foo', `obs${i}`, `content${i}`, 'observation', now, nowEpoch, 'memory_session_1');
     }
 
     // First distill
@@ -258,7 +266,7 @@ describe('DistillManager.processBranch', () => {
     db.prepare(
       `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(13, '1', 'feature/foo', 'o3', 'c3', 'observation', now, nowEpoch, 'memory_session_1');
+    ).run(13, 'test', 'feature/foo', 'o3', 'c3', 'observation', now, nowEpoch, 'memory_session_1');
 
     // Should be debounced
     const second = await debounceManager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha2' });
@@ -282,7 +290,7 @@ describe('DistillManager.processBranch', () => {
     db.prepare(
       `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(10, '1', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
+    ).run(10, 'test', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
 
     const first = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha1' });
     expect(first.distillId).not.toBe(null);
@@ -324,7 +332,7 @@ describe('DistillManager.processBranch', () => {
     db.prepare(
       `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(10, '1', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
+    ).run(10, 'test', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
 
     const first = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'feature-sha' });
     let feature = db.query("SELECT * FROM features WHERE branch_name = 'feature/foo'").get() as any;
@@ -334,7 +342,7 @@ describe('DistillManager.processBranch', () => {
     db.prepare(
       `INSERT INTO observations (id, project, branch_name, title, text, type, created_at, created_at_epoch, memory_session_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(11, '1', 'feature/foo', 'obs2', 'content2', 'observation', now, nowEpoch, 'memory_session_1');
+    ).run(11, 'test', 'feature/foo', 'obs2', 'content2', 'observation', now, nowEpoch, 'memory_session_1');
 
     const second = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'merged-sha' });
 
