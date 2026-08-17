@@ -108,6 +108,16 @@ export class SettingsRoutes extends BaseRouteHandler {
       'OLLAMA_MODEL',
       'CLAUDE_MEM_GEMINI_CLI_BINARY',
       'CLAUDE_MEM_GEMINI_CLI_MODEL',
+      'CLAUDE_MEM_CLAUDE_CLI_BINARY',
+      'CLAUDE_MEM_CLAUDE_CLI_MODEL',
+      'CLAUDE_MEM_CODEX_CLI_BINARY',
+      'CLAUDE_MEM_CODEX_CLI_MODEL',
+      'CLAUDE_MEM_COPILOT_CLI_BINARY',
+      'CLAUDE_MEM_COPILOT_CLI_MODEL',
+      'CLAUDE_MEM_OPENCODE_CLI_BINARY',
+      'CLAUDE_MEM_OPENCODE_CLI_MODEL',
+      'CLAUDE_MEM_THERMIS_CLI_BINARY',
+      'CLAUDE_MEM_THERMIS_CLI_MODEL',
       'CLAUDE_MEM_PREFER_COST_OPTIMIZATION',
       'CLAUDE_MEM_TASKS',
     ];
@@ -148,9 +158,9 @@ export class SettingsRoutes extends BaseRouteHandler {
 
   private validateSettings(settings: any): { valid: boolean; error?: string } {
     if (settings.CLAUDE_MEM_PROVIDER) {
-      const validProviders = ['claude', 'gemini', 'openrouter', 'ollama', 'gemini-cli'];
+      const validProviders = ['claude', 'gemini', 'openrouter', 'ollama', 'gemini-cli', 'claude-cli', 'codex-cli', 'copilot-cli', 'opencode-cli', 'thermis-cli'];
       if (!validProviders.includes(settings.CLAUDE_MEM_PROVIDER)) {
-        return { valid: false, error: 'CLAUDE_MEM_PROVIDER must be "claude", "gemini", "openrouter", "ollama", or "gemini-cli"' };
+        return { valid: false, error: 'CLAUDE_MEM_PROVIDER must be "claude", "gemini", "openrouter", "ollama", "gemini-cli", or one of the supported generic CLIs' };
       }
     }
 

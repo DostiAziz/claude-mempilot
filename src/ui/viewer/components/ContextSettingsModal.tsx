@@ -349,6 +349,11 @@ export function ContextSettingsModal({
                   <option value="openrouter">OpenRouter (multi-model)</option>
                   <option value="ollama">Ollama (local, no API key needed)</option>
                   <option value="gemini-cli">Antigravity CLI (agy)</option>
+                  <option value="claude-cli">Claude CLI</option>
+                  <option value="codex-cli">Codex CLI</option>
+                  <option value="copilot-cli">Copilot CLI</option>
+                  <option value="opencode-cli">OpenCode CLI</option>
+                  <option value="thermis-cli">Thermis CLI</option>
                 </select>
               </FormField>
 
@@ -477,7 +482,7 @@ export function ContextSettingsModal({
 
                 <div style={{ marginBottom: '16px', marginTop: '12px' }}>
                   <p style={{ fontSize: '0.9em', fontWeight: '500', color: '#666', marginBottom: '8px' }}>Primary Distillation Provider:</p>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px', marginBottom: '8px' }}>
                     {/* Ollama */}
                     <button
                       className="save-btn"
@@ -545,6 +550,102 @@ export function ContextSettingsModal({
                       }}
                     >
                       ✨ Antigravity CLI
+                    </button>
+
+                    {/* Claude CLI */}
+                    <button
+                      className="save-btn"
+                      onClick={() => {
+                        const allClaudeCli = JSON.stringify({
+                          "observation-analysis":"claude-cli","distill":"claude-cli","decision-extraction":"claude-cli",
+                          "todo-extraction":"claude-cli","session-summary":"claude-cli","feature-summary":"claude-cli",
+                          "branch-summary":"claude-cli","briefing-generation":"claude-cli","context-formatting":"claude-cli",
+                          "decision-formatting":"claude-cli","todo-formatting":"claude-cli","semantic-search":"claude-cli",
+                          "embeddings-generation":"claude-cli","similarity-scoring":"claude-cli",
+                          "metadata-enrichment":"claude-cli","concept-extraction":"claude-cli","file-impact-analysis":"claude-cli"
+                        });
+                        
+                        updateMultipleSettings({
+                          CLAUDE_MEM_PROVIDER: 'claude-cli',
+                          CLAUDE_MEM_TASKS: allClaudeCli,
+                          CLAUDE_MEM_PREFER_COST_OPTIMIZATION: 'true',
+                          OLLAMA_ENDPOINT: ''
+                        });
+                      }}
+                      type="button"
+                      style={{ 
+                        fontSize: '0.9em', 
+                        padding: '8px',
+                        background: formState.CLAUDE_MEM_TASKS?.includes('"claude-cli"') ? 'var(--accent-color, #3b82f6)' : 'var(--color-bg-secondary, #f6f8fa)',
+                        color: formState.CLAUDE_MEM_TASKS?.includes('"claude-cli"') ? 'white' : 'var(--color-text-primary, #24292e)',
+                        border: formState.CLAUDE_MEM_TASKS?.includes('"claude-cli"') ? 'none' : '1px solid var(--color-border, #e1e4e8)'
+                      }}
+                    >
+                      🤖 Claude CLI
+                    </button>
+
+                    {/* Codex CLI */}
+                    <button
+                      className="save-btn"
+                      onClick={() => {
+                        const allCodexCli = JSON.stringify({
+                          "observation-analysis":"codex-cli","distill":"codex-cli","decision-extraction":"codex-cli",
+                          "todo-extraction":"codex-cli","session-summary":"codex-cli","feature-summary":"codex-cli",
+                          "branch-summary":"codex-cli","briefing-generation":"codex-cli","context-formatting":"codex-cli",
+                          "decision-formatting":"codex-cli","todo-formatting":"codex-cli","semantic-search":"codex-cli",
+                          "embeddings-generation":"codex-cli","similarity-scoring":"codex-cli",
+                          "metadata-enrichment":"codex-cli","concept-extraction":"codex-cli","file-impact-analysis":"codex-cli"
+                        });
+                        
+                        updateMultipleSettings({
+                          CLAUDE_MEM_PROVIDER: 'codex-cli',
+                          CLAUDE_MEM_TASKS: allCodexCli,
+                          CLAUDE_MEM_PREFER_COST_OPTIMIZATION: 'true',
+                          OLLAMA_ENDPOINT: ''
+                        });
+                      }}
+                      type="button"
+                      style={{ 
+                        fontSize: '0.9em', 
+                        padding: '8px',
+                        background: formState.CLAUDE_MEM_TASKS?.includes('"codex-cli"') ? 'var(--accent-color, #3b82f6)' : 'var(--color-bg-secondary, #f6f8fa)',
+                        color: formState.CLAUDE_MEM_TASKS?.includes('"codex-cli"') ? 'white' : 'var(--color-text-primary, #24292e)',
+                        border: formState.CLAUDE_MEM_TASKS?.includes('"codex-cli"') ? 'none' : '1px solid var(--color-border, #e1e4e8)'
+                      }}
+                    >
+                      💻 Codex CLI
+                    </button>
+
+                    {/* Copilot CLI */}
+                    <button
+                      className="save-btn"
+                      onClick={() => {
+                        const allCopilotCli = JSON.stringify({
+                          "observation-analysis":"copilot-cli","distill":"copilot-cli","decision-extraction":"copilot-cli",
+                          "todo-extraction":"copilot-cli","session-summary":"copilot-cli","feature-summary":"copilot-cli",
+                          "branch-summary":"copilot-cli","briefing-generation":"copilot-cli","context-formatting":"copilot-cli",
+                          "decision-formatting":"copilot-cli","todo-formatting":"copilot-cli","semantic-search":"copilot-cli",
+                          "embeddings-generation":"copilot-cli","similarity-scoring":"copilot-cli",
+                          "metadata-enrichment":"copilot-cli","concept-extraction":"copilot-cli","file-impact-analysis":"copilot-cli"
+                        });
+                        
+                        updateMultipleSettings({
+                          CLAUDE_MEM_PROVIDER: 'copilot-cli',
+                          CLAUDE_MEM_TASKS: allCopilotCli,
+                          CLAUDE_MEM_PREFER_COST_OPTIMIZATION: 'true',
+                          OLLAMA_ENDPOINT: ''
+                        });
+                      }}
+                      type="button"
+                      style={{ 
+                        fontSize: '0.9em', 
+                        padding: '8px',
+                        background: formState.CLAUDE_MEM_TASKS?.includes('"copilot-cli"') ? 'var(--accent-color, #3b82f6)' : 'var(--color-bg-secondary, #f6f8fa)',
+                        color: formState.CLAUDE_MEM_TASKS?.includes('"copilot-cli"') ? 'white' : 'var(--color-text-primary, #24292e)',
+                        border: formState.CLAUDE_MEM_TASKS?.includes('"copilot-cli"') ? 'none' : '1px solid var(--color-border, #e1e4e8)'
+                      }}
+                    >
+                      ✈️ Copilot CLI
                     </button>
                   </div>
                   <p style={{ fontSize: '0.75em', color: '#999', marginTop: '4px', textAlign: 'center' }}>
@@ -624,6 +725,39 @@ export function ContextSettingsModal({
                     />
                   </FormField>
                 </div>
+
+                {/* Generic CLIs */}
+                {['claude-cli', 'codex-cli', 'copilot-cli', 'opencode-cli', 'thermis-cli'].includes(formState.CLAUDE_MEM_PROVIDER ?? '') && (() => {
+                  const providerKey = (formState.CLAUDE_MEM_PROVIDER as string).replace('-', '_').toUpperCase(); // e.g. CLAUDE_CLI
+                  const binKey = `CLAUDE_MEM_${providerKey}_BINARY` as keyof Settings;
+                  const modKey = `CLAUDE_MEM_${providerKey}_MODEL` as keyof Settings;
+                  
+                  return (
+                    <div style={{ paddingLeft: '12px', borderLeft: '2px solid #e0e0e0', marginTop: '12px' }}>
+                      <span style={{ fontSize: '0.9em', fontWeight: '500', color: '#666' }}>{formState.CLAUDE_MEM_PROVIDER} Config</span>
+                      <FormField
+                        label="Binary Path"
+                        tooltip="Command to execute this CLI"
+                      >
+                        <input
+                          type="text"
+                          value={formState[binKey] ?? ''}
+                          onChange={(e) => updateSetting(binKey, e.target.value)}
+                        />
+                      </FormField>
+                      <FormField
+                        label="Model"
+                        tooltip="Model to pass to the CLI"
+                      >
+                        <input
+                          type="text"
+                          value={formState[modKey] ?? ''}
+                          onChange={(e) => updateSetting(modKey, e.target.value)}
+                        />
+                      </FormField>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* System Settings subsection */}

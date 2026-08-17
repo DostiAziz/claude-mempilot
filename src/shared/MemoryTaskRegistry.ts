@@ -28,7 +28,7 @@ export type MemoryTaskType =
   | 'concept-extraction'
   | 'file-impact-analysis';
 
-export type ProviderName = 'claude' | 'gemini-api' | 'gemini-cli' | 'openrouter' | 'ollama';
+export type ProviderName = 'claude' | 'gemini-api' | 'gemini-cli' | 'openrouter' | 'ollama' | 'claude-cli' | 'codex-cli' | 'copilot-cli' | 'opencode-cli' | 'thermis-cli';
 
 export const MEMORY_TASK_DEFAULTS: Record<MemoryTaskType, {
   preferredProvider: ProviderName;

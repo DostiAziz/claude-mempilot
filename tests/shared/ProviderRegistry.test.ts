@@ -81,8 +81,18 @@ describe('ProviderRegistry', () => {
     costRegistry.registerProvider(mockGemini);
     costRegistry.registerProvider(mockOllama);
 
+    const mockClaudeCli: LlmProvider = {
+      name: 'claude-cli',
+      model: 'claude-3-5-sonnet-latest',
+      isAvailable: async () => true,
+      extract: async () => 'cli-response',
+      extractStructured: async () => ({}),
+      getSpeed: () => 'fast',
+    };
+    costRegistry.registerProvider(mockClaudeCli);
+
     const provider = await costRegistry.getForTask('semantic-search');
-    // semantic-search prefers ollama, so with cost optimization, should still get ollama
+    // semantic-search prefers ollama, so with cost optimization, should still get ollama since it's highest in costOrder
     expect(provider.name).toBe('ollama');
   });
 

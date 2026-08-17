@@ -7,6 +7,7 @@ import {
 import type { SettingsDefaults } from './SettingsDefaultsManager.js';
 import { OllamaProvider } from '../services/worker/OllamaProvider.js';
 import { GeminiCliProvider } from '../services/worker/GeminiCliProvider.js';
+import { GenericCliProvider } from '../services/worker/GenericCliProvider.js';
 
 class GeminiApiLlmProvider implements LlmProvider {
   name = 'gemini-api';
@@ -95,6 +96,21 @@ export class ProviderRegistry {
     const geminiCliModel = settings.CLAUDE_MEM_GEMINI_CLI_MODEL?.trim() || 'gemini-2.5-flash-lite';
     this.registerProvider(new GeminiCliProvider({ binary: geminiCliBinary, model: geminiCliModel }));
 
+    const claudeCliBinary = settings.CLAUDE_MEM_CLAUDE_CLI_BINARY?.trim() || 'claude';
+    this.registerProvider(new GenericCliProvider({ name: 'claude-cli', binary: claudeCliBinary, model: settings.CLAUDE_MEM_CLAUDE_CLI_MODEL?.trim() || 'default' }));
+
+    const codexCliBinary = settings.CLAUDE_MEM_CODEX_CLI_BINARY?.trim() || 'codex';
+    this.registerProvider(new GenericCliProvider({ name: 'codex-cli', binary: codexCliBinary, model: settings.CLAUDE_MEM_CODEX_CLI_MODEL?.trim() || 'default' }));
+
+    const copilotCliBinary = settings.CLAUDE_MEM_COPILOT_CLI_BINARY?.trim() || 'copilot';
+    this.registerProvider(new GenericCliProvider({ name: 'copilot-cli', binary: copilotCliBinary, model: settings.CLAUDE_MEM_COPILOT_CLI_MODEL?.trim() || 'default' }));
+
+    const opencodeCliBinary = settings.CLAUDE_MEM_OPENCODE_CLI_BINARY?.trim() || 'opencode';
+    this.registerProvider(new GenericCliProvider({ name: 'opencode-cli', binary: opencodeCliBinary, model: settings.CLAUDE_MEM_OPENCODE_CLI_MODEL?.trim() || 'default' }));
+
+    const thermisCliBinary = settings.CLAUDE_MEM_THERMIS_CLI_BINARY?.trim() || 'thermis';
+    this.registerProvider(new GenericCliProvider({ name: 'thermis-cli', binary: thermisCliBinary, model: settings.CLAUDE_MEM_THERMIS_CLI_MODEL?.trim() || 'default' }));
+
     const geminiApiKey = settings.CLAUDE_MEM_GEMINI_API_KEY?.trim();
     if (geminiApiKey) {
       this.registerProvider(new GeminiApiLlmProvider(geminiApiKey));
@@ -172,6 +188,11 @@ export class ProviderRegistry {
     const costOrder: ProviderName[] = [
       'ollama',
       'gemini-cli',
+      'claude-cli',
+      'codex-cli',
+      'copilot-cli',
+      'opencode-cli',
+      'thermis-cli',
       'openrouter',
       'gemini-api',
       'claude',
