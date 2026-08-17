@@ -71,6 +71,7 @@ const ANTIGRAVITY_EVENT_TO_INTERNAL_EVENT: Record<string, string> = {
   'AfterTool': 'observation',
   'Notification': 'observation',
   'PreCompress': 'summarize',
+  'SessionEnd': 'summarize',
 };
 
 function buildHookCommand(
