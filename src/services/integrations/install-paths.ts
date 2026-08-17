@@ -80,6 +80,7 @@ export function getWorkerServiceAbsolutePath(): string | null {
 export function getBunAbsolutePath(): string {
   const candidates = [
     path.join(homedir(), '.bun', 'bin', 'bun'),
+    '/opt/homebrew/bin/bun',
     '/usr/local/bin/bun',
     '/usr/bin/bun',
     ...(process.platform === 'win32'
