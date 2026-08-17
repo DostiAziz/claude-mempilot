@@ -245,7 +245,7 @@ export async function installAntigravityCliHooks(): Promise<number> {
     const existingSettings = readAntigravitySettings();
     const mergedSettings = mergeHooksIntoSettings(existingSettings, hooksConfig);
 
-    writeAntigravityHooksAndSetupContext(mergedSettings);
+    writeAntigravityHooksAndSetupContext(mergedSettings, bunPath, workerServicePath);
     registerAntigravityMcp();
     setupRulesContextFile();
 
@@ -275,15 +275,43 @@ Context Injection:
   }
 }
 
-function writeAntigravityHooksAndSetupContext(mergedSettings: AntigravitySettingsJson): void {
+function writeAntigravityHooksAndSetupContext(mergedSettings: AntigravitySettingsJson, bunPath: string, workerServicePath: string): void {
   writeAntigravitySettings(mergedSettings);
   console.log(`  Merged hooks into ${GEMINI_SETTINGS_PATH}`);
 
   setupGeminiMdContextSection();
   console.log(`  Setup context injection in ${GEMINI_MD_PATH}`);
 
+  // Write hooks.json for Antigravity CLI
+  const hooksConfigPath = path.join(GEMINI_CONFIG_DIR, 'config', 'hooks.json');
+  let hooksJson: any = {};
+  if (existsSync(hooksConfigPath)) {
+    try {
+      hooksJson = JSON.parse(readFileSync(hooksConfigPath, 'utf8'));
+    } catch (e) {
+      console.log('  Failed to parse existing hooks.json, overwriting.');
+    }
+  }
+
+  const buildCmd = (internalEvent: string) => ({
+    type: 'command',
+    command: `"${bunPath.replace(/\\/g, '\\\\')}" "${workerServicePath.replace(/\\/g, '\\\\')}" hook antigravity-cli ${internalEvent}`
+  });
+
+  hooksJson['claude-mem'] = {
+    PreInvocation: [ buildCmd('session-init') ],
+    PostInvocation: [ buildCmd('observation') ],
+    Stop: [ buildCmd('summarize') ],
+    PreToolUse: [{ matcher: '*', hooks: [ buildCmd('observation') ] }],
+    PostToolUse: [{ matcher: '*', hooks: [ buildCmd('observation') ] }]
+  };
+
+  mkdirSync(path.dirname(hooksConfigPath), { recursive: true });
+  writeFileSync(hooksConfigPath, JSON.stringify(hooksJson, null, 2) + '\n');
+  console.log(`  Written Antigravity CLI hooks to ${hooksConfigPath}`);
+
   const eventNames = Object.keys(ANTIGRAVITY_EVENT_TO_INTERNAL_EVENT);
-  console.log(`  Registered ${eventNames.length} hook events:`);
+  console.log(`  Registered ${eventNames.length} hook events for Gemini CLI:`);
   for (const event of eventNames) {
     const internalEvent = ANTIGRAVITY_EVENT_TO_INTERNAL_EVENT[event];
     console.log(`    ${event} → ${internalEvent}`);
@@ -356,10 +384,29 @@ export function uninstallAntigravityCliHooks(): number {
   }
 }
 
+
 function removeAntigravityHooksFromSettings(): void {
+  const hooksConfigPath = require('path').join(GEMINI_CONFIG_DIR, 'config', 'hooks.json');
+  if (existsSync(hooksConfigPath)) {
+    try {
+      const hooksJson = JSON.parse(readFileSync(hooksConfigPath, 'utf8'));
+      if (hooksJson['claude-mem']) {
+        delete hooksJson['claude-mem'];
+        if (Object.keys(hooksJson).length === 0) {
+          require('fs').unlinkSync(hooksConfigPath);
+        } else {
+          writeFileSync(hooksConfigPath, JSON.stringify(hooksJson, null, 2) + '\n');
+        }
+        console.log(`  Removed claude-mem hooks from ${hooksConfigPath}`);
+      }
+    } catch (e) {
+      console.log('  Failed to remove hooks from hooks.json:', e);
+    }
+  }
+
   const settings = readAntigravitySettings();
   if (!settings.hooks) {
-    console.log('  No hooks found in Antigravity CLI settings — nothing to uninstall.');
+    console.log('  No hooks found in Gemini CLI settings — nothing to uninstall.');
     return;
   }
 
