@@ -20,16 +20,36 @@ export class GeminiCliProvider implements LlmProvider {
   }
 
   async isAvailable(): Promise<boolean> {
-    try {
-      const result = spawn(this.binary, ['--version'], {
-        timeout: 5000,
-        stdio: 'pipe',
-      });
-      return true;
-    } catch (err: any) {
-      if (err.code === 'ENOENT') return false;
-      return false;
-    }
+    return new Promise((resolve) => {
+      try {
+        const proc = spawn(this.binary, ['--version'], { stdio: 'pipe', timeout: 5000 });
+        let completed = false;
+
+        proc.on('close', (code) => {
+          if (!completed) {
+            completed = true;
+            resolve(code === 0);
+          }
+        });
+
+        proc.on('error', () => {
+          if (!completed) {
+            completed = true;
+            resolve(false);
+          }
+        });
+
+        setTimeout(() => {
+          if (!completed) {
+            completed = true;
+            try { proc.kill(); } catch {}
+            resolve(false);
+          }
+        }, 5500);
+      } catch {
+        resolve(false);
+      }
+    });
   }
 
   async extract(input: { prompt: string; maxTokens?: number; temperature?: number }): Promise<string> {

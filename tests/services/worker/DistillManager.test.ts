@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { DistillManager } from '../../../src/services/worker/DistillManager.js';
 import { setupTestDb } from '../../helpers/test-db.js';
+import { runDistillationMigrations } from '../../../src/services/sqlite/migrations/runner.js';
 import type { ProviderRegistry } from '../../../src/shared/ProviderRegistry.js';
 import type { Database } from 'bun:sqlite';
 
@@ -10,6 +11,7 @@ describe('DistillManager.processBranch', () => {
 
   beforeEach(async () => {
     db = await setupTestDb();
+    runDistillationMigrations(db);
     // Mock registry
     mockRegistry = {
       getForTask: async () => ({
@@ -33,7 +35,7 @@ describe('DistillManager.processBranch', () => {
     execSync('git branch -m main', { cwd: tempDir });
     const now = Math.floor(Date.now() / 1000);
     db.prepare("INSERT INTO projects (id, name, root_path, metadata, created_at_epoch, updated_at_epoch) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(1, 'test', tempDir, '{}', now, now);
+      .run('1', 'test', tempDir, '{}', now, now);
   };
 
   const seedSession = () => {
@@ -63,7 +65,7 @@ describe('DistillManager.processBranch', () => {
     seedProject();
 
     const result = await manager.processBranch({
-      projectId: 1,
+      projectId: '1',
       branch: 'feature/foo',
       commitSha: 'abc123',
     });
@@ -117,7 +119,7 @@ describe('DistillManager.processBranch', () => {
     ).run(11, 'test', 'feature/foo', 'obs2', 'content2', 'observation', now, nowEpoch, 'memory_session_1');
 
     const result = await manager.processBranch({
-      projectId: 1,
+      projectId: '1',
       branch: 'feature/foo',
       commitSha: 'abc123',
     });
@@ -167,7 +169,7 @@ describe('DistillManager.processBranch', () => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(10, 'test', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
 
-    const first = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha1' });
+    const first = await manager.processBranch({ projectId: '1', branch: 'feature/foo', commitSha: 'sha1' });
     expect(first.distillId).not.toBe(null);
 
     // Add new observations (enough to exceed default debounce threshold of 3)
@@ -184,7 +186,7 @@ describe('DistillManager.processBranch', () => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(14, 'test', 'feature/foo', 'o5', 'c5', 'observation', now, nowEpoch, 'memory_session_1');
 
-    const second = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha2' });
+    const second = await manager.processBranch({ projectId: '1', branch: 'feature/foo', commitSha: 'sha2' });
     expect(second.distillId).not.toBe(null);
     expect(second.distillId).not.toBe(first.distillId);
     expect(second.consumedObservationIds).toEqual([12, 13, 14]);
@@ -227,9 +229,9 @@ describe('DistillManager.processBranch', () => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(10, 'test', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
 
-    const first = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha1' });
+    const first = await manager.processBranch({ projectId: '1', branch: 'feature/foo', commitSha: 'sha1' });
 
-    const second = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha2' });
+    const second = await manager.processBranch({ projectId: '1', branch: 'feature/foo', commitSha: 'sha2' });
     expect(second.distillId).toBe(null);
     expect(extractCallCount).toBe(1);
   });
@@ -259,7 +261,7 @@ describe('DistillManager.processBranch', () => {
     }
 
     // First distill
-    const first = await debounceManager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha1' });
+    const first = await debounceManager.processBranch({ projectId: '1', branch: 'feature/foo', commitSha: 'sha1' });
     expect(first.distillId).not.toBe(null);
 
     // Add just 1 new obs immediately (within debounce window)
@@ -269,7 +271,7 @@ describe('DistillManager.processBranch', () => {
     ).run(13, 'test', 'feature/foo', 'o3', 'c3', 'observation', now, nowEpoch, 'memory_session_1');
 
     // Should be debounced
-    const second = await debounceManager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha2' });
+    const second = await debounceManager.processBranch({ projectId: '1', branch: 'feature/foo', commitSha: 'sha2' });
     expect(second.distillId).toBe(null);
   });
 
@@ -292,12 +294,12 @@ describe('DistillManager.processBranch', () => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(10, 'test', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
 
-    const first = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'sha1' });
+    const first = await manager.processBranch({ projectId: '1', branch: 'feature/foo', commitSha: 'sha1' });
     expect(first.distillId).not.toBe(null);
 
     // Second call with force=true
     const second = await manager.processBranch({
-      projectId: 1,
+      projectId: '1',
       branch: 'feature/foo',
       commitSha: 'sha2',
       force: true,
@@ -334,7 +336,7 @@ describe('DistillManager.processBranch', () => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(10, 'test', 'feature/foo', 'obs1', 'content1', 'observation', now, nowEpoch, 'memory_session_1');
 
-    const first = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'feature-sha' });
+    const first = await manager.processBranch({ projectId: '1', branch: 'feature/foo', commitSha: 'feature-sha' });
     let feature = db.query("SELECT * FROM features WHERE branch_name = 'feature/foo'").get() as any;
     expect(feature.status).toBe('open');
 
@@ -344,7 +346,7 @@ describe('DistillManager.processBranch', () => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(11, 'test', 'feature/foo', 'obs2', 'content2', 'observation', now, nowEpoch, 'memory_session_1');
 
-    const second = await manager.processBranch({ projectId: 1, branch: 'feature/foo', commitSha: 'merged-sha' });
+    const second = await manager.processBranch({ projectId: '1', branch: 'feature/foo', commitSha: 'merged-sha' });
 
     feature = db.query("SELECT * FROM features WHERE branch_name = 'feature/foo'").get() as any;
     expect(feature.status).toBe('merged');

@@ -3,7 +3,7 @@ import type { ProviderRegistry } from '../../shared/ProviderRegistry.js';
 import { logger } from '../../utils/logger.js';
 
 export interface DistillInput {
-  projectId: number;
+  projectId: string;
   branch: string;
   commitSha: string;
   force?: boolean;
@@ -172,7 +172,7 @@ export class DistillManager {
     return { body, decisions, todos, suggestedTitle };
   }
 
-  private async findOrCreateFeature(projectId: number, branch: string): Promise<any> {
+  private async findOrCreateFeature(projectId: string, branch: string): Promise<any> {
     let row = this.db.prepare('SELECT * FROM features WHERE project_id = ? AND branch_name = ?').get(projectId, branch) as any;
     if (!row) {
       const result = this.db.prepare(
@@ -189,7 +189,7 @@ export class DistillManager {
     ).get(featureId) as any;
   }
 
-  private async unclaimedObservationsSince(projectId: number, branch: string, since?: string): Promise<any[]> {
+  private async unclaimedObservationsSince(projectId: string, branch: string, since?: string): Promise<any[]> {
     const project = this.db.prepare('SELECT id, name FROM projects WHERE id = ?').get(projectId) as any;
     if (!project) return [];
 
@@ -207,7 +207,7 @@ export class DistillManager {
     ).all(project.name, branch) as any[];
   }
 
-  private async allObservationsForBranch(projectId: number, branch: string): Promise<any[]> {
+  private async allObservationsForBranch(projectId: string, branch: string): Promise<any[]> {
     const project = this.db.prepare('SELECT id, name FROM projects WHERE id = ?').get(projectId) as any;
     if (!project) return [];
     return this.db.prepare(

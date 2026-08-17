@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { SessionStore } from '../../../src/services/sqlite/SessionStore.js';
+import { runDistillationMigrations } from '../../../src/services/sqlite/migrations/runner.js';
 
 interface TableNameRow {
   name: string;
@@ -45,7 +46,8 @@ describe('MemPilot migration: features tables', () => {
 
   describe('schema creation', () => {
     it('creates all four new tables and adds two columns to observations', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       const tables = getTableNames(db);
@@ -57,7 +59,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('adds branch_name and feature_id columns to observations table', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       const obsCols = getColumns(db, 'observations');
@@ -68,7 +71,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('creates proper indexes on observations for branch_name and feature_id', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       const indexes = db.prepare(
@@ -79,7 +83,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('creates features table with correct columns and constraints', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       const cols = getColumns(db, 'features');
@@ -98,7 +103,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('creates distilled_reflections table with correct columns', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       const cols = getColumns(db, 'distilled_reflections');
@@ -115,7 +121,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('creates decisions table with correct columns', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       const cols = getColumns(db, 'decisions');
@@ -132,7 +139,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('creates todos table with correct columns', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       const cols = getColumns(db, 'todos');
@@ -150,7 +158,8 @@ describe('MemPilot migration: features tables', () => {
 
   describe('indexes', () => {
     it('creates index on distilled_reflections for current (non-superseded) items', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       const indexes = db.prepare(
@@ -161,7 +170,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('creates index on decisions.topic for efficient filtering', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       const indexes = db.prepare(
@@ -172,7 +182,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('creates index on open todos for efficient filtering', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       const indexes = db.prepare(
@@ -185,22 +196,24 @@ describe('MemPilot migration: features tables', () => {
 
   describe('constraints', () => {
     it('enforces UNIQUE(project_id, branch_name) on features', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       db.prepare(
-        "INSERT INTO features (project_id, branch_name, title) VALUES (1, 'main', 'Main Feature')"
+        "INSERT INTO features (project_id, branch_name, title) VALUES ('1', 'main', 'Main Feature')"
       ).run();
 
       expect(() => {
         db.prepare(
-          "INSERT INTO features (project_id, branch_name, title) VALUES (1, 'main', 'Another Feature')"
+          "INSERT INTO features (project_id, branch_name, title) VALUES ('1', 'main', 'Another Feature')"
         ).run();
       }).toThrow();
     });
 
     it('enforces foreign key constraint on distilled_reflections.feature_id', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       expect(() => {
@@ -213,7 +226,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('enforces foreign key constraint on decisions.feature_id', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       expect(() => {
@@ -225,7 +239,8 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('enforces foreign key constraint on todos.feature_id', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       expect(() => {
@@ -239,25 +254,27 @@ describe('MemPilot migration: features tables', () => {
 
   describe('data integrity', () => {
     it('allows inserting and querying features', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       db.prepare(
         'INSERT INTO features (project_id, branch_name, title) VALUES (?, ?, ?)'
-      ).run(1, 'feat/auth', 'Add authentication');
+      ).run('1', 'feat/auth', 'Add authentication');
 
       const result = db.prepare(
         'SELECT * FROM features WHERE branch_name = ?'
       ).get('feat/auth') as any;
 
       expect(result).toBeDefined();
-      expect(result.project_id).toBe(1);
+      expect(result.project_id).toBe('1');
       expect(result.title).toBe('Add authentication');
       expect(result.status).toBe('open');
     });
 
     it('allows inserting and querying observations with branch_name and feature_id', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       const now = new Date().toISOString();
@@ -271,7 +288,7 @@ describe('MemPilot migration: features tables', () => {
       db.prepare(`
         INSERT INTO features (id, project_id, branch_name, title)
         VALUES (?, ?, ?, ?)
-      `).run(1, 1, 'feat/auth', 'Test Feature');
+      `).run(1, '1', 'feat/auth', 'Test Feature');
 
       db.prepare(`
         INSERT INTO observations (memory_session_id, project, type, created_at, created_at_epoch, branch_name, feature_id)
@@ -287,12 +304,13 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('allows cascading delete from features to dependent tables', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       const featureId = db.prepare(
         'INSERT INTO features (project_id, branch_name, title) VALUES (?, ?, ?)'
-      ).run(1, 'test-feature', 'Test Feature').lastInsertRowid as number;
+      ).run('1', 'test-feature', 'Test Feature').lastInsertRowid as number;
 
       const reflectionId = db.prepare(`
         INSERT INTO distilled_reflections (feature_id, commit_sha_at_distill, consumed_observation_ids, body_md, llm_model_used)
@@ -323,14 +341,16 @@ describe('MemPilot migration: features tables', () => {
 
   describe('idempotency', () => {
     it('running migrations twice does not error', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
 
       
       expect(() => new SessionStore(db)).not.toThrow();
     });
 
     it('produces identical schema when run twice', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       const tablesAfterFirst = getTableNames(db);
@@ -348,24 +368,26 @@ describe('MemPilot migration: features tables', () => {
 
   describe('default values', () => {
     it('sets status to "open" by default on features', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       db.prepare(
         'INSERT INTO features (project_id, branch_name, title) VALUES (?, ?, ?)'
-      ).run(1, 'test', 'Test');
+      ).run('1', 'test', 'Test');
 
       const result = db.prepare('SELECT status FROM features LIMIT 1').get() as { status: string };
       expect(result.status).toBe('open');
     });
 
     it('sets status to "open" by default on todos', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       const featureId = db.prepare(
         'INSERT INTO features (project_id, branch_name, title) VALUES (?, ?, ?)'
-      ).run(1, 'test', 'Test').lastInsertRowid as number;
+      ).run('1', 'test', 'Test').lastInsertRowid as number;
 
       db.prepare('INSERT INTO todos (feature_id, body) VALUES (?, ?)').run(featureId, 'Do something');
 
@@ -374,12 +396,13 @@ describe('MemPilot migration: features tables', () => {
     });
 
     it('sets created_at timestamp automatically', () => {
-      const runner = new SessionStore(db);
+      new SessionStore(db);
+      runDistillationMigrations(db);
       
 
       db.prepare(
         'INSERT INTO features (project_id, branch_name, title) VALUES (?, ?, ?)'
-      ).run(1, 'test', 'Test');
+      ).run('1', 'test', 'Test');
 
       const result = db.prepare('SELECT opened_at FROM features LIMIT 1').get() as { opened_at: string };
       expect(result.opened_at).toBeDefined();

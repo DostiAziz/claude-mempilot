@@ -526,13 +526,16 @@ export async function processAgentResponse(
     void (async () => {
       try {
         const db = dbManager.getConnection();
+        
+        const { runDistillationMigrations } = await import('../../sqlite/migrations/runner.js');
+        runDistillationMigrations(db);
 
         // Upsert project row, get integer rowid
         db.prepare(
           `INSERT OR IGNORE INTO projects (id, name, root_path, metadata, created_at_epoch, updated_at_epoch)
            VALUES (lower(hex(randomblob(16))), ?, ?, '{}', ?, ?)`
         ).run(session.project, projectRoot, Date.now(), Date.now());
-        const projectRow = db.prepare('SELECT rowid FROM projects WHERE root_path = ?').get(projectRoot) as { rowid: number } | null;
+        const projectRow = db.prepare('SELECT id FROM projects WHERE root_path = ?').get(projectRoot) as { id: string } | null;
         if (!projectRow) return;
 
         // Resolve branch and commit SHA
@@ -556,7 +559,7 @@ export async function processAgentResponse(
         });
 
         const distillOutput = await distillManager.processBranch({
-          projectId: projectRow.rowid,
+          projectId: projectRow.id,
           branch: branchName,
           commitSha,
         });
