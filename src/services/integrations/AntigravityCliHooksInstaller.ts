@@ -38,8 +38,9 @@ interface AntigravitySettingsJson {
 // plans/2026-07-03-antigravity-cli-migration.md). Same settings.json, same
 // hook JSON schema, same GEMINI.md context file. Not a typo/leftover.
 const GEMINI_CONFIG_DIR = path.join(homedir(), '.gemini');
-const GEMINI_SETTINGS_PATH = path.join(GEMINI_CONFIG_DIR, 'settings.json');
-const GEMINI_MD_PATH = path.join(GEMINI_CONFIG_DIR, 'GEMINI.md');
+const AGY_CONFIG_DIR = path.join(GEMINI_CONFIG_DIR, 'antigravity-cli');
+const GEMINI_SETTINGS_PATH = path.join(AGY_CONFIG_DIR, 'settings.json');
+const GEMINI_MD_PATH = path.join(AGY_CONFIG_DIR, 'GEMINI.md');
 
 // B0 found two real, genuinely ambiguous MCP config paths on a live machine —
 // one already populated (old path), one present but empty (newer path per
@@ -121,7 +122,7 @@ function readAntigravitySettings(): AntigravitySettingsJson {
 }
 
 function writeAntigravitySettings(settings: AntigravitySettingsJson): void {
-  mkdirSync(GEMINI_CONFIG_DIR, { recursive: true });
+  mkdirSync(AGY_CONFIG_DIR, { recursive: true });
   writeFileSync(GEMINI_SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n');
 }
 
@@ -184,7 +185,7 @@ ${contextEndTag}`;
   const separator = content.length > 0 && !content.endsWith('\n') ? '\n\n' : content.length > 0 ? '\n' : '';
   const newContent = content + separator + placeholder + '\n';
 
-  mkdirSync(GEMINI_CONFIG_DIR, { recursive: true });
+  mkdirSync(AGY_CONFIG_DIR, { recursive: true });
   writeFileSync(GEMINI_MD_PATH, newContent);
 }
 
