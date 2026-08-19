@@ -44,9 +44,15 @@ describe('Version Consistency', () => {
     expect(marketplaceJson.plugins).toBeDefined();
     expect(marketplaceJson.plugins.length).toBeGreaterThan(0);
     
-    const claudeMemPlugin = marketplaceJson.plugins.find((p: any) => p.name === 'claude-mem');
-    expect(claudeMemPlugin).toBeDefined();
-    expect(claudeMemPlugin.version).toBe(rootVersion);
+    // Look the entry up by SOURCE, then assert its name — pinning the plugin
+    // id to a literal is what let marketplace.json and plugin.json drift apart
+    // (`claude-mem` vs `mempilot`). Both are generated from package.json now,
+    // so this asserts they agree rather than restating one of them.
+    const rootPkg = JSON.parse(readFileSync(path.join(projectRoot, 'package.json'), 'utf-8'));
+    const bundledPlugin = marketplaceJson.plugins.find((p: any) => p.source === './plugin');
+    expect(bundledPlugin).toBeDefined();
+    expect(bundledPlugin.name).toBe(rootPkg.name);
+    expect(bundledPlugin.version).toBe(rootVersion);
   });
 
   it('should have version injected into built worker-service.cjs', () => {

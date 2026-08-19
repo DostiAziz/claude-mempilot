@@ -58,6 +58,22 @@ export interface ShellTemplateOptions {
   mcpExtraCacheRoots?: string[];
 }
 
+/**
+ * Plugin cache roots to search, most-preferred first.
+ *
+ * `mempilot` is this fork's plugin id. `claude-mem` stays in the list because
+ * upstream installs — and this machine mid-migration — still have their build
+ * under the old directory name, and the resolver must keep finding those.
+ *
+ * Additive on purpose: appending rather than replacing the upstream entry
+ * keeps the diff against upstream a pure insertion, which merges far more
+ * cleanly than a modified line every time upstream touches this file.
+ */
+const PLUGIN_CACHE_ROOTS = [
+  '$_C/plugins/cache/thedotmack/mempilot',
+  '$_C/plugins/cache/thedotmack/claude-mem',
+];
+
 const CLAUDE_CODE_PATH_PRELUDE = `export PATH="$($SHELL -lc 'echo $PATH' 2>/dev/null):$PATH";`;
 
 const CLAUDE_CODE_SETUP_PATH_PRELUDE =
@@ -119,7 +135,7 @@ function candidateBlock(options: ShellTemplateOptions): string {
   }
 
   const extraCacheRoots = isMcp && options.mcpExtraCacheRoots ? options.mcpExtraCacheRoots : [];
-  const allGlobs = [...extraCacheRoots, '$_C/plugins/cache/thedotmack/claude-mem']
+  const allGlobs = [...extraCacheRoots, ...PLUGIN_CACHE_ROOTS]
     .map((root) => `"${root}"/[0-9]*/`)
     .join(' ');
   // Cache dirs ranked by VERSION descending (zero-padded major.minor.patch
@@ -200,7 +216,7 @@ function buildMcpNodeLauncher(options: ShellTemplateOptions): string {
   const candidates = (options.mcpExtraCandidates ?? []).map(shTokenToNode);
   const cacheRoots = [
     ...(options.mcpExtraCacheRoots ?? []),
-    '$_C/plugins/cache/thedotmack/claude-mem',
+    ...PLUGIN_CACHE_ROOTS,
   ].map(shTokenToNode);
   const marketplace = shTokenToNode('$_C/plugins/marketplaces/thedotmack/plugin');
   const require = JSON.stringify(options.requireFile);

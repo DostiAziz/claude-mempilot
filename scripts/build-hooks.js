@@ -133,6 +133,7 @@ function shellTemplateManifest(buildShellCommand, buildCodexWindowsCommand) {
         mcpExtraCandidates: ['$PWD/plugin', '$PWD'],
         mcpExtraCacheRoots: [
           '$HOME/.codex/plugins/cache/claude-mem-local/mempilot',
+          '$HOME/.codex/plugins/cache/thedotmack/mempilot',
           '$HOME/.codex/plugins/cache/thedotmack/claude-mem',
         ],
       }),
@@ -748,6 +749,9 @@ async function buildHooks() {
     const mcpSearchCommand = bundledMcp.mcpServers?.['mcp-search']?.args?.join(' ') ?? '';
     if (!mcpSearchCommand.includes('.codex/plugins/cache/claude-mem-local/mempilot')) {
       throw new Error('plugin/.mcp.json mcp-search launcher must include Codex cache fallback for hosts that do not inject PLUGIN_ROOT');
+    }
+    if (!mcpSearchCommand.includes('plugins/cache/thedotmack/mempilot')) {
+      throw new Error('plugin/.mcp.json mcp-search launcher must include the mempilot Claude cache root for hosts that do not inject PLUGIN_ROOT');
     }
     if (!mcpSearchCommand.includes('plugins/cache/thedotmack/claude-mem')) {
       throw new Error('plugin/.mcp.json mcp-search launcher must include Claude cache fallback for hosts that do not inject PLUGIN_ROOT');

@@ -391,6 +391,7 @@ const MCP_EXPECTED = buildShellCommand({
   mcpExtraCandidates: ['$PWD/plugin', '$PWD'],
   mcpExtraCacheRoots: [
     '$HOME/.codex/plugins/cache/claude-mem-local/mempilot',
+    '$HOME/.codex/plugins/cache/thedotmack/mempilot',
     '$HOME/.codex/plugins/cache/thedotmack/claude-mem',
   ],
 });

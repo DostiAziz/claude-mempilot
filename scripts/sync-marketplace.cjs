@@ -6,7 +6,7 @@ const path = require('path');
 const os = require('os');
 
 const INSTALLED_PATH = path.join(os.homedir(), '.claude', 'plugins', 'marketplaces', 'thedotmack');
-const CACHE_BASE_PATH = path.join(os.homedir(), '.claude', 'plugins', 'cache', 'thedotmack', 'claude-mem');
+const CACHE_BASE_PATH = path.join(os.homedir(), '.claude', 'plugins', 'cache', 'thedotmack', 'mempilot');
 
 function getCurrentBranch() {
   try {
@@ -27,7 +27,14 @@ function getGitignoreExcludes(basePath) {
   const gitignorePath = path.join(basePath, '.gitignore');
   if (!existsSync(gitignorePath)) return '';
 
-  const syncManagedFiles = new Set();
+  // .gitignore patterns that must NOT become rsync excludes.
+  //
+  // `.gitignore` lists `.mcp.json` unanchored to keep a developer's local root
+  // MCP config out of the repo — but `plugin/.mcp.json` is a TRACKED build
+  // artifact, and an unanchored rsync `--exclude` matches at every depth, so
+  // the marketplace copy silently never received it. It had drifted to a stale
+  // upstream build whose mcp-search launcher lacked the mempilot cache roots.
+  const syncManagedFiles = new Set(['.mcp.json']);
 
   const lines = readFileSync(gitignorePath, 'utf-8').split('\n');
   return lines
