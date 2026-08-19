@@ -86,15 +86,17 @@ async function executeHookPipeline(
   adapter: ReturnType<typeof getPlatformAdapter>,
   handler: ReturnType<typeof getEventHandler>,
   platform: string,
+  event: string,
+  rawInput: unknown,
+  hostEvent: string | undefined,
   options: HookCommandOptions
 ): Promise<number> {
-  const rawInput = await readJsonFromStdin();
   const input = adapter.normalizeInput(rawInput);
   input.platform = platform;
   const result = await handler.execute(input);
 
   // MODEL_CONTEXT: the only stdout JSON emit, via the platform adapter.
-  emitModelContext(adapter, result);
+  emitModelContext(adapter, result, event, input.hostEvent ?? hostEvent);
   const exitCode = result.exitCode ?? HOOK_EXIT_CODES.SUCCESS;
   exitGraceful(options);
   return exitCode;
@@ -121,18 +123,26 @@ export async function hookCommand(platform: string, event: string, options: Hook
   const adapter = getPlatformAdapter(platform);
   const handler = getEventHandler(event);
 
+  // Read stdin and recover the host's event name BEFORE the pipeline can throw.
+  // Every failure branch below still has to emit an output envelope, and on
+  // Antigravity the envelope's shape decides whether the user's tool call is
+  // allowed — a fallback shaped for the wrong event denies it outright.
+  let hostEvent: string | undefined;
+
   try {
-    return await executeHookPipeline(adapter, handler, platform, options);
+    const rawInput = await readJsonFromStdin();
+    hostEvent = adapter.resolveHostEvent?.(rawInput);
+    return await executeHookPipeline(adapter, handler, platform, event, rawInput, hostEvent, options);
   } catch (error) {
     if (error instanceof AdapterRejectedInput) {
       logger.warn('HOOK', `Adapter rejected input (${error.reason}), skipping hook`);
-      emitModelContext(adapter, buildNoOpResult(event));
+      emitModelContext(adapter, buildNoOpResult(event), event, hostEvent);
       exitGraceful(options);
       return HOOK_EXIT_CODES.SUCCESS;
     }
     if (isNonBlockingHookInputError(error)) {
       logger.warn('HOOK', `Hook input unavailable, skipping hook: ${error instanceof Error ? error.message : error}`);
-      emitModelContext(adapter, buildNoOpResult(event));
+      emitModelContext(adapter, buildNoOpResult(event), event, hostEvent);
       exitGraceful(options);
       return HOOK_EXIT_CODES.SUCCESS;
     }
@@ -144,6 +154,12 @@ export async function hookCommand(platform: string, event: string, options: Hook
       // emits the threshold-gated hook_failed telemetry internally. Awaited:
       // when the count JUST reaches the threshold it sends the event and then
       // exits 2; exitGraceful below would kill a pending POST mid-flight.
+      // Still emit the no-op envelope: this branch used to exit 0 with EMPTY
+      // stdout, and a host that parses hook output strictly (Antigravity runs
+      // it through protojson) errors on empty input just as hard as on a bad
+      // field — which would resurrect the every-tool-fails symptom for the
+      // whole time the worker is down.
+      emitModelContext(adapter, buildNoOpResult(event), event, hostEvent);
       await recordWorkerUnreachable();
       exitGraceful(options);
       return HOOK_EXIT_CODES.SUCCESS;

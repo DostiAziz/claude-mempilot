@@ -108,18 +108,26 @@ export function emitDiagnostic(line: string): void {
 
 /**
  * Emit the model-bound JSON payload to stdout. Calls adapter.formatOutput and
- * JSON.stringify exactly once. Throws if called twice in the same emitter
+ * JSON.stringify exactly once. `event` is the claude-mem internal event name,
+ * passed to the adapter because some hosts (Antigravity) validate hook output
+ * against a per-event schema. `hostEvent` is the HOST's event name when the
+ * platform's output schema varies per event and the internal name is ambiguous. Throws if called twice in the same emitter
  * lifetime (guards against double-emit corrupting the stdout JSON stream).
  *
  * Uses console.log (not process.stdout.write) on purpose: the trailing newline
  * is what Claude Code's / Codex's hook parser expects.
  */
-export function emitModelContext(adapter: PlatformAdapter, result: HookResult): void {
+export function emitModelContext(
+  adapter: PlatformAdapter,
+  result: HookResult,
+  event?: string,
+  hostEvent?: string,
+): void {
   if (moduleHasEmitted) {
     throw new Error('emitModelContext called twice');
   }
   moduleHasEmitted = true;
-  const output = adapter.formatOutput(result);
+  const output = adapter.formatOutput(result, event, hostEvent);
   console.log(JSON.stringify(output));
 }
 

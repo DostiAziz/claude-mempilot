@@ -117,24 +117,182 @@ describe('antigravityCliAdapter - normalizeInput', () => {
   });
 });
 
-describe('antigravityCliAdapter - formatOutput', () => {
-  it('strips ANSI escape codes from systemMessage (real bug fix carried over from Gemini CLI adapter)', () => {
-    const raw = '[31mRed text[0m';
-    const result = antigravityCliAdapter.formatOutput({ systemMessage: raw }) as Record<string, unknown>;
-    expect(result.systemMessage).toBe('Red text');
+describe('antigravityCliAdapter - normalizeInput (protojson HookArgs)', () => {
+  const common = {
+    conversationId: 'conv-1',
+    workspacePaths: ['/tmp/ws'],
+    transcriptPath: '/tmp/ws/transcript.json',
+    modelName: 'gemini-3',
+    lastUserInput: 'what does this do?',
+  };
+
+  it('reads session, cwd, transcript and prompt out of the common block', () => {
+    const result = antigravityCliAdapter.normalizeInput({
+      common,
+      sessionStartHookArgs: {},
+    });
+    expect(result.sessionId).toBe('conv-1');
+    expect(result.cwd).toBe('/tmp/ws');
+    expect(result.transcriptPath).toBe('/tmp/ws/transcript.json');
+    expect(result.prompt).toBe('what does this do?');
+    expect(result.model).toBe('gemini-3');
   });
 
-  it('defaults continue to true and passes through hookSpecificOutput.additionalContext', () => {
-    const result = antigravityCliAdapter.formatOutput({
+  it('falls back to executionId when the conversation has no id yet', () => {
+    const result = antigravityCliAdapter.normalizeInput({
+      common: { workspacePaths: ['/tmp/ws'], executionId: 'exec-9' },
+      stopHookArgs: {},
+    });
+    expect(result.sessionId).toBe('exec-9');
+  });
+
+  it('maps preToolHookArgs.toolCall into toolName/toolInput and marks it pre-execution', () => {
+    const result = antigravityCliAdapter.normalizeInput({
+      common,
+      preToolHookArgs: { toolCall: { name: 'run_command', args: { command: 'ls -la' } }, stepIdx: 3 },
+    });
+    expect(result.toolName).toBe('run_command');
+    expect(result.toolInput).toEqual({ command: 'ls -la' });
+    expect(result.toolResponse).toEqual({ _preExecution: true });
+  });
+
+  it('maps postToolHookArgs result/error into toolResponse', () => {
+    const result = antigravityCliAdapter.normalizeInput({
+      common,
+      postToolHookArgs: { toolCall: { name: 'run_command', args: {} }, result: 'total 0', stepIdx: 3 },
+    });
+    expect(result.toolName).toBe('run_command');
+    expect(result.toolResponse).toEqual({ result: 'total 0' });
+  });
+
+  it('records a postInvocation model turn as a synthetic provider tool call', () => {
+    const result = antigravityCliAdapter.normalizeInput({
+      common,
+      postInvocationHookArgs: { invocationNum: 1, modelOutput: 'here you go', modelThinking: 'hmm' },
+    });
+    expect(result.toolName).toBe('AntigravityProvider');
+    expect(result.toolInput).toEqual({ prompt: 'what does this do?' });
+    expect(result.toolResponse).toEqual({ response: 'here you go', thinking: 'hmm' });
+  });
+
+  it('accepts a flattened payload (common merged with the inner args)', () => {
+    const result = antigravityCliAdapter.normalizeInput({
+      ...common,
+      toolCall: { name: 'read_file', args: { path: 'a.ts' } },
+      stepIdx: 0,
+    });
+    expect(result.sessionId).toBe('conv-1');
+    expect(result.cwd).toBe('/tmp/ws');
+    expect(result.toolName).toBe('read_file');
+    expect(result.toolResponse).toEqual({ _preExecution: true });
+  });
+
+  it('accepts proto snake_case field names as well as protojson camelCase', () => {
+    const result = antigravityCliAdapter.normalizeInput({
+      common: { conversation_id: 'conv-2', workspace_paths: ['/tmp/ws'], last_user_input: 'hi' },
+      pre_tool_hook_args: { tool_call: { name: 'grep', args: {} } },
+    });
+    expect(result.sessionId).toBe('conv-2');
+    expect(result.cwd).toBe('/tmp/ws');
+    expect(result.prompt).toBe('hi');
+    expect(result.toolName).toBe('grep');
+  });
+});
+
+// Antigravity unmarshals hook stdout with protojson into the result message for
+// the firing event. Two distinct failure modes live here:
+//   1. protojson REJECTS unknown fields, so the Claude Code envelope blew up
+//      every hook with `unknown field "continue"`.
+//   2. PreToolHookResult fails CLOSED — an omitted `decision` is proto3's empty
+//      string, which is not 'allow', so a bare `{}` DENIES the tool call
+//      ("tool call denied by pre-tool hook: " with a blank reason).
+// See the field table in antigravity-cli.ts.
+describe('antigravityCliAdapter - formatOutput (protojson result messages)', () => {
+  const FORBIDDEN = ['continue', 'suppressOutput', 'systemMessage', 'hookSpecificOutput'];
+
+  it('never emits Claude Code envelope fields, whatever the handler returned', () => {
+    const noisy = {
+      continue: true,
+      suppressOutput: true,
+      systemMessage: 'terminal hint',
       hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'ctx' },
-    }) as Record<string, unknown>;
-    expect(result.continue).toBe(true);
-    expect(result.hookSpecificOutput).toEqual({ additionalContext: 'ctx' });
+    };
+    const hosts = ['SessionStart', 'PreInvocation', 'PreToolUse', 'PostToolUse', 'PostInvocation', 'Stop', undefined];
+    for (const host of hosts) {
+      for (const event of ['context', 'session-init', 'observation', 'summarize', undefined]) {
+        const output = antigravityCliAdapter.formatOutput(noisy, event, host) as Record<string, unknown>;
+        for (const field of FORBIDDEN) expect(output).not.toHaveProperty(field);
+      }
+    }
   });
 
-  it('passes through suppressOutput when explicitly set', () => {
-    const result = antigravityCliAdapter.formatOutput({ suppressOutput: true }) as Record<string, unknown>;
-    expect(result.suppressOutput).toBe(true);
+  it('says allow OUT LOUD on PreToolUse — an empty result is a deny, not a no-op', () => {
+    expect(antigravityCliAdapter.formatOutput({ continue: true }, 'observation', 'PreToolUse'))
+      .toEqual({ decision: 'allow' });
+    expect(antigravityCliAdapter.formatOutput({ continue: true }, 'observation', 'BeforeTool'))
+      .toEqual({ decision: 'allow' });
+  });
+
+  it('emits the empty envelope on PostToolUse (PostToolHookResult declares no fields)', () => {
+    expect(antigravityCliAdapter.formatOutput({ continue: true }, 'observation', 'PostToolUse')).toEqual({});
+    expect(antigravityCliAdapter.formatOutput({ continue: true }, 'observation', 'PostInvocation')).toEqual({});
+  });
+
+  it('biases an UNKNOWN host event toward allow for observation hooks', () => {
+    // The mistakes are asymmetric: a stray `decision` on a Post* hook is a
+    // parse warning after the tool ran; a bare `{}` on PreToolUse blocks it.
+    expect(antigravityCliAdapter.formatOutput({ continue: true }, 'observation', undefined))
+      .toEqual({ decision: 'allow' });
+    expect(antigravityCliAdapter.formatOutput({ continue: true }, undefined, undefined)).toEqual({});
+  });
+
+  it('derives the host event from the internal event for the unambiguous hooks', () => {
+    expect(antigravityCliAdapter.formatOutput({
+      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'past work' },
+    }, 'context')).toEqual({ injectSteps: [{ systemMessage: { systemMessage: 'past work' } }] });
+
+    expect(antigravityCliAdapter.formatOutput({
+      hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'recalled' },
+    }, 'session-init')).toEqual({ injectSteps: [{ systemMessage: { systemMessage: 'recalled' } }] });
+
+    expect(antigravityCliAdapter.formatOutput({ continue: true }, 'summarize')).toEqual({});
+  });
+
+  it('strips ANSI escape codes from injected context', () => {
+    const output = antigravityCliAdapter.formatOutput({
+      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: '\u001b[31mRed text\u001b[0m' },
+    }, 'context') as { injectSteps: Array<{ systemMessage: { systemMessage: string } }> };
+    expect(output.injectSteps[0].systemMessage.systemMessage).toBe('Red text');
+  });
+
+  it('emits no inject step when there is no context to inject', () => {
+    expect(antigravityCliAdapter.formatOutput({ continue: true, suppressOutput: true }, 'context')).toEqual({});
+    expect(antigravityCliAdapter.formatOutput({
+      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: '   ' },
+    }, 'context')).toEqual({});
+  });
+
+  it('drops systemMessage: Antigravity has no terminal-hint channel', () => {
+    expect(antigravityCliAdapter.formatOutput({ systemMessage: 'View Observations Live' }, 'context')).toEqual({});
+  });
+
+  it('maps a blocking summarize result onto StopHookResult decision/reason', () => {
+    expect(antigravityCliAdapter.formatOutput({ decision: 'block', reason: 'still compressing' }, 'summarize'))
+      .toEqual({ decision: 'block', reason: 'still compressing' });
+  });
+});
+
+describe('antigravityCliAdapter - resolveHostEvent', () => {
+  it('recovers the host event from a raw payload so error paths stay correctly shaped', () => {
+    expect(antigravityCliAdapter.resolveHostEvent!({ preToolHookArgs: { toolCall: { name: 'ls' } } })).toBe('PreToolUse');
+    expect(antigravityCliAdapter.resolveHostEvent!({ postToolHookArgs: { result: 'ok' } })).toBe('PostToolUse');
+    expect(antigravityCliAdapter.resolveHostEvent!({ sessionStartHookArgs: {} })).toBe('SessionStart');
+  });
+
+  it('never throws on junk input', () => {
+    for (const junk of [null, undefined, 42, 'nope', []]) {
+      expect(() => antigravityCliAdapter.resolveHostEvent!(junk)).not.toThrow();
+    }
   });
 });
 
