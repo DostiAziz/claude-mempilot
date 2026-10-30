@@ -1,6 +1,6 @@
 {
   "name": "mempilot",
-  "version": "14.0.0",
+  "version": "16.0.0",
   "description": "Memory compression system for Claude Code - persist context across sessions",
   "author": {
     "name": "Alex Newman",

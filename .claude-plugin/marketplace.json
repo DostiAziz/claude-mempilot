@@ -1,17 +1,23 @@
 {
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "thedotmack",
+  "description": "thedotmack plugins marketplace",
   "owner": {
-    "name": "Alex Newman"
-  },
-  "metadata": {
-    "description": "Plugins by Alex Newman (thedotmack)"
+    "name": "Alex Newman",
+    "email": "alex@alexnewman.com"
   },
   "plugins": [
     {
       "name": "mempilot",
-      "version": "14.0.0",
+      "version": "16.0.0",
       "source": "./plugin",
       "description": "Memory compression system for Claude Code - persist context across sessions"
+    },
+    {
+      "name": "claude-mem-cowork",
+      "version": "0.1.4",
+      "source": "./cowork",
+      "description": "Claude-Mem for Cowork (Claude app cloud sessions) - hooks stream tool use to cmem.ai and inject observations into new sessions and agents"
     }
   ]
 }

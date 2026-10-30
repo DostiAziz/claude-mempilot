@@ -3,7 +3,7 @@ import { createHash } from 'crypto';
 import { execSync } from 'child_process';
 import { logger } from '../../../utils/logger.js';
 
-function getCurrentGitBranch(projectPath: string): string | null {
+export function getCurrentGitBranch(projectPath: string): string | null {
   try {
     const branch = execSync(`git -C "${projectPath}" rev-parse --abbrev-ref HEAD`, {
       encoding: 'utf8',
@@ -16,6 +16,17 @@ function getCurrentGitBranch(projectPath: string): string | null {
     // Not a git repo or git error
     return null;
   }
+}
+
+/**
+ * Whether an observation has a title worth storing. Title-less observations are
+ * malformed, low-signal rows that take up space in the recency-based recall
+ * window without adding facts, so storage skips them. Callers that pair parsed
+ * observations with stored ids by position must drop them first with this same
+ * check, or every later id shifts onto the wrong observation.
+ */
+export function hasStorableTitle(title: string | null | undefined): title is string {
+  return typeof title === 'string' && title.trim() !== '';
 }
 
 export function computeObservationContentHash(

@@ -1,54 +1,58 @@
-datasets/
+# Dependencies
 node_modules/
-dist/
-**/_tree-sitter/
-*.log
-.DS_Store
+
+# Build artifacts
+/dist/
+/build/
+*.tsbuildinfo
+
+# SQLite databases (local runtime state, never commit user databases)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Environment and secrets
 .env
 .env.local
-*.tmp
-*.temp
-.install-version
-.claude/settings.local.json
-.claude/agents/
-.claude/skills/
-.claude/plans/
-.claude/worktrees/
-plugin/data/
-plugin/data.backup/
-package-lock.json
-bun.lock
-!plugin/bun.lock
-!workers/sync-hub/bun.lock
-private/
-Auto Run Docs/
+*.pem
+*.key
 
-src/ui/viewer.html
+# Test and coverage artifacts
+coverage/
+.nyc_output/
+*.lcov
+junit.xml
 
-.mcp.json
-.cursor/
-
+# IDE and editor files
 .idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
 
-.claude-octopus/
-.claude/session-intent.md
-.claude/session-plan.md
-.claude/scheduled_tasks.lock
-.octo/
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-plugin/.cli-installed
+# OS-specific files
+Thumbs.db
+ehthumbs.db
 
-plugin/scripts/claude-mem
-
-CONTRIB_NOTES.md
-CLAUDE.local.md
-
-.docker-claude-mem-data/
-
-.docker-blowout-data/
-.scratch/
-docker/install-test/
+# Docker install-test directory (contains git clones during tests)
+docker/install-test
 
 # Local session report artifacts (not part of distribution)
 reports/
 .roo/
+
+# Python bytecode (Hermes provider and tests)
+__pycache__/
+*.pyc
+
+# Fixture homes written by tests (tests/services/prompt-import/token-usage.test.ts)
+tests/**/.generated/

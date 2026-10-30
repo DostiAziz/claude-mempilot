@@ -1,10 +1,10 @@
 {
   "name": "mempilot",
-  "version": "14.0.0",
+  "version": "16.0.0",
   "description": "Memory compression system for Claude Code - persist context across sessions",
   "author": {
     "name": "Alex Newman",
-    "url": "https://github.com/thedotmack"
+    "email": "alex@alexnewman.com"
   },
   "homepage": "https://github.com/thedotmack/claude-mem#readme",
   "repository": "https://github.com/thedotmack/claude-mem",
@@ -22,25 +22,10 @@
     "typescript",
     "nodejs"
   ],
-  "skills": "./plugin/skills/",
-  "mcpServers": "./plugin/.mcp.json",
-  "hooks": "./plugin/hooks/codex-hooks.json",
   "interface": {
-    "displayName": "claude-mem",
-    "shortDescription": "Persistent memory and context compression across coding sessions.",
-    "longDescription": "claude-mem captures coding-session activity, compresses it into reusable observations, and injects relevant context back into future Claude Code and Codex-compatible sessions.",
+    "displayName": "Claude-Mem",
+    "icon": "assets/icon.png",
     "developerName": "Alex Newman",
-    "category": "Productivity",
-    "capabilities": [
-      "Interactive",
-      "Write"
-    ],
-    "websiteURL": "https://github.com/thedotmack/claude-mem",
-    "defaultPrompt": [
-      "Find what I already learned about this codebase before I start a new task.",
-      "Show recent observations related to the files I am editing right now.",
-      "Summarize the last session and inject the most relevant context into this one."
-    ],
-    "brandColor": "#1F6FEB"
+    "websiteURL": "https://github.com/thedotmack/claude-mem"
   }
 }
