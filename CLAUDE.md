@@ -1,11 +1,15 @@
 # Mempilot: AI Development Instructions
 
-Mempilot is a fork of [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem) — a Claude Code plugin providing persistent memory across sessions. It captures tool usage, compresses observations, and injects relevant context into future sessions. This fork adds Ollama / generic-CLI providers and Antigravity CLI (`agy`) support.
+Mempilot is a fork of [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem) — a Claude Code plugin providing persistent memory across sessions. It captures tool usage, compresses observations, and injects relevant context into future sessions. This fork adds Ollama / generic-CLI providers, Antigravity CLI (`agy`) support, and scenario-based provider routing with automatic runtime fallback.
 
-## Build
+## Build & Test
 
 ```bash
 npm run build-and-sync        # Build, sync to marketplace + cache, restart worker
+npm run build                 # Compile all plugin, worker, and UI assets
+bun test                      # Run Bun unit tests
+bun test tests/shared/ProviderRegistry.test.ts # Provider and scenario routing tests
+bun test tests/services/agent-runner/run.test.ts # Background agent runner tests
 ```
 
 If the build fails with *"Hand-edited shell string detected"*, you changed the
@@ -16,6 +20,11 @@ node scripts/build-hooks.js --write-shell-templates
 npm run build
 ```
 
+## Branching & Development Rules
+
+- **Branch Isolation**: For every new feature, a new git branch must be created (e.g. `feature/<name>`) to ensure the main codebase remains stable and avoid interfering with working code.
+- **Plugin Identity**: Preserve the `mempilot` identity (version `16.0.0+`). Never hand-edit files in `.claude-plugin/` or `.codex-plugin/` directly; they are synchronized by `scripts/sync-plugin-manifests.js`.
+
 ## File Locations
 
 - **Source**: `<project-root>/src/`
@@ -24,9 +33,36 @@ npm run build
 - **Installed Plugin (cache — what Claude Code loads)**: `~/.claude/plugins/cache/thedotmack/mempilot/<version>/`
 - **Database**: `~/.claude-mem/claude-mem.db`
 - **Chroma**: `~/.claude-mem/chroma/`
+- **Settings**: `~/.claude-mem/settings.json`
 
 The data dir keeps the `claude-mem` name on purpose — renaming it would orphan
 existing memories.
+
+## Scenario-Based LLM Routing & Automatic Fallback
+
+Memory distillation tasks are grouped into 4 high-level scenarios configured in `CLAUDE_MEM_SCENARIOS`:
+
+1. **⚡ Live Tool Observations (`live-observation`)**: `distill`, `observation-analysis`, `decision-extraction`, `todo-extraction`, `file-impact-analysis`
+2. **📝 Session Summaries & Reports (`session-summary`)**: `session-summary`, `feature-summary`, `branch-summary`, `briefing-generation`
+3. **🔍 Semantic Search & Embeddings (`semantic-search`)**: `semantic-search`, `embeddings-generation`, `similarity-scoring`
+4. **🏷️ Formatting & Concept Enrichment (`enrichment-format`)**: `context-formatting`, `decision-formatting`, `todo-formatting`, `metadata-enrichment`, `concept-extraction`
+
+### Fallback Engine (`ProviderRegistry.executeWithFallback`)
+- Each scenario defines a **Primary Provider**, an automatic **Fallback Provider**, and a **Timeout**.
+- Supported providers: `ollama`, `gemini-cli` (Antigravity CLI `agy`), `claude-cli`, `codex-cli`, `copilot-cli`, `opencode-cli`, `openrouter`, `gemini-api`, `claude`.
+- If the primary provider fails, times out, or throws (e.g., local Ollama OOM), `executeWithFallback` catches the failure and immediately executes on the fallback provider without interrupting the session.
+
+## Background Work View Agent (`CLAUDE_MEM_WORK_VIEW_AGENT`)
+
+Work View refreshes and background tasks use `CLAUDE_MEM_WORK_VIEW_AGENT`:
+- `'antigravity-cli'`: Enforces Antigravity CLI (`agy`) execution.
+- `'claude-code'`: Enforces Claude Code CLI execution.
+- `'codex'`: Enforces OpenAI Codex CLI execution.
+- `'auto'`: Probes available agents in order: Antigravity CLI → Claude Code → Codex.
+- `'disabled'`: Prevents automatic background runs.
+
+> [!NOTE]
+> The standalone `gemini` CLI has been decommissioned by Google; all references to `gemini-cli` internally execute Google Antigravity CLI (`agy`) with native flags (`-p`, `--output-format json`, `--dangerously-skip-permissions`).
 
 ## Plugin identity
 
