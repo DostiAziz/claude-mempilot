@@ -1,9 +1,11 @@
 # Dependencies
 node_modules/
+package-lock.json
 
 # Build artifacts
 /dist/
 /build/
+/dsh/lib/
 *.tsbuildinfo
 
 # SQLite databases (local runtime state, never commit user databases)
@@ -23,10 +25,12 @@ coverage/
 .nyc_output/
 *.lcov
 junit.xml
+.playwright-mcp/
 
 # IDE and editor files
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 *~

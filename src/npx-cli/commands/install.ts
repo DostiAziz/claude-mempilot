@@ -2550,9 +2550,10 @@ export function validateNonInteractiveProvider(
     if (
       persistedProvider === 'claude' || persistedProvider === 'codex' || persistedProvider === 'gemini'
       || persistedProvider === 'openrouter' || persistedProvider === 'openai-compatible'
+      || persistedProvider === 'ollama'
     ) {
       // Codex, like claude, authenticates through a local login rather than a
-      // saved key, and openai-compatible may point at a local server that takes
+      // saved key, and openai-compatible / ollama may point at a local server that takes
       // no key at all, so there is nothing to validate before keeping them.
       if (persistedProvider === 'gemini' || persistedProvider === 'openrouter') {
         const persistedKeyName = persistedProvider === 'gemini'

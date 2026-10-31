@@ -104,6 +104,18 @@ describe('npx claude-mem update keeps the configured provider', () => {
     expect(readFileSync(USER_SETTINGS_PATH, 'utf-8')).toBe(before);
   });
 
+  it('keeps ollama without a key: a local GPU server takes none', async () => {
+    const before = writeSettings({
+      CLAUDE_MEM_PROVIDER: 'ollama',
+      CLAUDE_MEM_OLLAMA_MODEL: 'qwen2.5-coder:7b',
+    });
+
+    const { provider } = await runUpdateProviderStep();
+
+    expect(provider).toBe('ollama');
+    expect(readFileSync(USER_SETTINGS_PATH, 'utf-8')).toBe(before);
+  });
+
   it('keeps a gateway account untouched', async () => {
     const before = writeSettings({ ...ACCOUNT_SETTINGS, CLAUDE_MEM_PROVIDER: 'openrouter' });
 

@@ -1108,7 +1108,9 @@ export async function processAgentResponse(
   );
 
   // Fire-and-forget distillation: runs async, never blocks observation write
-  const providerRegistry = dbManager.getProviderRegistry();
+  const providerRegistry = typeof dbManager?.getProviderRegistry === 'function'
+    ? dbManager.getProviderRegistry()
+    : null;
   logger.debug('DISTILL', 'Fire-and-forget check', {
     hasRegistry: !!providerRegistry,
     obsCount: result.observationIds.length,
