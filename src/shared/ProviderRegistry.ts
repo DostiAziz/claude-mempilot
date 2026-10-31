@@ -3,11 +3,16 @@ import {
   MemoryTaskType,
   MEMORY_TASK_DEFAULTS,
   ProviderName,
+  ScenarioType,
+  ScenarioConfig,
+  SCENARIO_TASK_MAP,
+  DEFAULT_SCENARIOS,
 } from './MemoryTaskRegistry.js';
 import type { SettingsDefaults } from './SettingsDefaultsManager.js';
 import { OllamaProvider } from '../services/worker/OllamaProvider.js';
 import { GeminiCliProvider } from '../services/worker/GeminiCliProvider.js';
 import { GenericCliProvider } from '../services/worker/GenericCliProvider.js';
+import { logger } from '../utils/logger.js';
 
 class GeminiApiLlmProvider implements LlmProvider {
   name = 'gemini-api';
@@ -75,16 +80,17 @@ class ClaudeLlmProvider implements LlmProvider {
 export class ProviderRegistry {
   private providers: Map<ProviderName, LlmProvider> = new Map();
   private taskOverrides: Map<MemoryTaskType, ProviderName> = new Map();
+  private scenarios: Map<ScenarioType, ScenarioConfig> = new Map();
   private costOptimization: boolean;
 
   constructor(settings: SettingsDefaults) {
     this.registerProviders(settings);
     this.loadTaskOverrides(settings);
+    this.loadScenarios(settings);
     this.costOptimization =
       settings.CLAUDE_MEM_PREFER_COST_OPTIMIZATION === 'true' ||
       (settings.CLAUDE_MEM_PREFER_COST_OPTIMIZATION as any) === true;
   }
-
 
   private registerProviders(settings: SettingsDefaults) {
     const ollamaEndpoint = (settings.OLLAMA_ENDPOINT as string | undefined)?.trim();
@@ -139,43 +145,143 @@ export class ProviderRegistry {
           );
         }
       }
-    } catch (e) {
+    } catch {
       // Ignore parsing errors
     }
   }
 
-  // Get provider for a specific memory task
-  async getForTask(task: MemoryTaskType): Promise<LlmProvider> {
-    // 1. Check user override
+  private loadScenarios(settings: SettingsDefaults) {
+    try {
+      const scenariosStr = settings.CLAUDE_MEM_SCENARIOS;
+      if (scenariosStr && typeof scenariosStr === 'string' && scenariosStr !== '{}') {
+        const parsed = JSON.parse(scenariosStr);
+        for (const [scenario, config] of Object.entries(parsed)) {
+          if (config && typeof config === 'object') {
+            this.scenarios.set(scenario as ScenarioType, config as ScenarioConfig);
+          }
+        }
+      }
+    } catch {
+      // Ignore parsing errors, defaults will apply
+    }
+  }
+
+  getScenario(scenarioType: ScenarioType): ScenarioConfig {
+    return this.scenarios.get(scenarioType) ?? DEFAULT_SCENARIOS[scenarioType];
+  }
+
+  getTimeoutForTask(task: MemoryTaskType): number {
+    const scenarioType = SCENARIO_TASK_MAP[task];
+    const scenario = this.getScenario(scenarioType);
+    return scenario?.timeoutMs ?? 15000;
+  }
+
+  /**
+   * Resolve an ordered list of candidate providers for a given task:
+   * 1. Explicit task override (if any)
+   * 2. Scenario Primary provider
+   * 3. Scenario Fallback provider (if configured)
+   * 4. Task default chain
+   */
+  async getCandidateProviders(task: MemoryTaskType): Promise<LlmProvider[]> {
+    const result: LlmProvider[] = [];
+    const seen = new Set<string>();
+
+    const addProvider = async (name?: ProviderName | 'none') => {
+      if (!name || name === 'none' || seen.has(name)) return;
+      seen.add(name);
+      const p = this.providers.get(name as ProviderName);
+      if (p && (await p.isAvailable())) {
+        result.push(p);
+      }
+    };
+
+    // 1. Explicit task override
     const override = this.taskOverrides.get(task);
     if (override) {
-      const provider = this.providers.get(override);
-      if (provider && (await provider.isAvailable())) {
-        return provider;
+      await addProvider(override);
+    }
+
+    // 2. Scenario primary and fallback (user configured scenario takes precedence)
+    const scenarioType = SCENARIO_TASK_MAP[task];
+    if (scenarioType) {
+      const scenario = this.getScenario(scenarioType);
+      if (scenario) {
+        await addProvider(scenario.primary);
+        if (scenario.fallback) {
+          await addProvider(scenario.fallback);
+        }
       }
     }
 
-    // 2. Check cost optimization flag
+    // 3. Cost optimization check
     if (this.costOptimization) {
-      const provider = this.getLowestCostProvider(task);
-      if (provider && (await provider.isAvailable())) {
-        return provider;
+      const lowestCost = this.getLowestCostProvider(task);
+      if (lowestCost) {
+        await addProvider(lowestCost.name as ProviderName);
       }
     }
 
-    // 3. Use task default with fallback chain
+    // 4. Default task fallback chain
     const taskConfig = MEMORY_TASK_DEFAULTS[task];
-    for (const providerName of [
-      taskConfig.preferredProvider,
-      ...taskConfig.fallbackChain,
-    ]) {
-      const provider = this.providers.get(providerName);
-      if (provider && (await provider.isAvailable())) {
-        return provider;
+    if (taskConfig) {
+      await addProvider(taskConfig.preferredProvider);
+      for (const fallback of taskConfig.fallbackChain) {
+        await addProvider(fallback);
       }
     }
 
+    return result;
+  }
+
+  // Get first available provider for a specific memory task
+  async getForTask(task: MemoryTaskType): Promise<LlmProvider> {
+    const candidates = await this.getCandidateProviders(task);
+    if (candidates.length > 0) {
+      return candidates[0];
+    }
     throw new Error(`No available provider for task: ${task}`);
+  }
+
+  /**
+   * Execute an operation on the primary provider with automatic runtime
+   * failover to configured fallback providers if timeout or errors occur.
+   */
+  async executeWithFallback<T>(
+    task: MemoryTaskType,
+    runner: (provider: LlmProvider) => Promise<T>
+  ): Promise<T> {
+    const candidates = await this.getCandidateProviders(task);
+    if (!candidates.length) {
+      throw new Error(`No available providers configured for task: ${task}`);
+    }
+
+    let lastError: Error | null = null;
+    const timeoutMs = this.getTimeoutForTask(task);
+
+    for (let i = 0; i < candidates.length; i++) {
+      const provider = candidates[i];
+      try {
+        const result = await Promise.race([
+          runner(provider),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs)
+          ),
+        ]);
+        return result;
+      } catch (err: any) {
+        lastError = err;
+        const next = candidates[i + 1];
+        if (next) {
+          logger.warn(
+            'DISTILL',
+            `Provider '${provider.name}' failed on task '${task}' (${err.message}). Failing over to '${next.name}'...`
+          );
+        }
+      }
+    }
+
+    throw lastError ?? new Error(`All candidate providers failed for task: ${task}`);
   }
 
   // Get lowest-cost provider from task's chain

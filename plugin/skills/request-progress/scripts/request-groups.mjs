@@ -1242,6 +1242,8 @@ var init_SettingsDefaultsManager = __esm({
         // Legacy Postgres project_id (read as fallback when CLAUDE_MEM_SERVER_PROJECT_ID unset)
         CLAUDE_MEM_TASKS: "{}",
         // Empty = use defaults from MEMORY_TASK_DEFAULTS
+        CLAUDE_MEM_SCENARIOS: "{}",
+        // Empty = use defaults from DEFAULT_SCENARIOS
         CLAUDE_MEM_PREFER_COST_OPTIMIZATION: "false",
         OLLAMA_ENDPOINT: "",
         // Empty = Ollama disabled

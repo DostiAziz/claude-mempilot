@@ -189,6 +189,7 @@ export interface Settings {
   CLAUDE_MEM_THERMIS_CLI_MODEL?: string;
   CLAUDE_MEM_PREFER_COST_OPTIMIZATION?: string;
   CLAUDE_MEM_TASKS?: string;
+  CLAUDE_MEM_SCENARIOS?: string;
   CLAUDE_MEM_WORK_VIEW_AUTO_REFRESH?: string;
   CLAUDE_MEM_WORK_VIEW_AGENT?: string;
 

@@ -8,6 +8,14 @@ import { DEFAULT_SETTINGS } from '../constants/settings';
 import { isClaudeMemObserverBaseUrl } from '../utils/observer-endpoint';
 import { claudeProviderOptionLabel } from '../utils/claude-auth-method';
 import { OPENAI_COMPAT_PRESET_OPTIONS, openAICompatPresetOption } from '../constants/openai-compat-presets';
+import {
+  SCENARIO_DEFINITIONS,
+  PROVIDER_SELECT_OPTIONS,
+  DEFAULT_SCENARIOS_STATE,
+  type ScenarioId,
+  type ProviderId,
+  type ScenarioConfigState,
+} from '../constants/scenarios';
 
 interface ContextSettingsModalProps {
   isOpen: boolean;
@@ -242,6 +250,120 @@ export function ContextSettingsModal({
     const newValue = currentValue === 'true' ? 'false' : 'true';
     updateSetting(key, newValue);
   }, [formState, updateSetting]);
+
+  const scenariosState: Record<ScenarioId, ScenarioConfigState> = (() => {
+    try {
+      if (formState.CLAUDE_MEM_SCENARIOS) {
+        const parsed = JSON.parse(formState.CLAUDE_MEM_SCENARIOS);
+        return {
+          'live-observation': { ...DEFAULT_SCENARIOS_STATE['live-observation'], ...parsed['live-observation'] },
+          'session-summary': { ...DEFAULT_SCENARIOS_STATE['session-summary'], ...parsed['session-summary'] },
+          'semantic-search': { ...DEFAULT_SCENARIOS_STATE['semantic-search'], ...parsed['semantic-search'] },
+          'enrichment-format': { ...DEFAULT_SCENARIOS_STATE['enrichment-format'], ...parsed['enrichment-format'] },
+        };
+      }
+    } catch {
+      // ignore
+    }
+    return DEFAULT_SCENARIOS_STATE;
+  })();
+
+  const updateScenario = useCallback((scenarioId: ScenarioId, updates: Partial<ScenarioConfigState>) => {
+    setFormState(prev => {
+      let currentScenarios: Record<ScenarioId, ScenarioConfigState> = DEFAULT_SCENARIOS_STATE;
+      try {
+        if (prev.CLAUDE_MEM_SCENARIOS) {
+          const parsed = JSON.parse(prev.CLAUDE_MEM_SCENARIOS);
+          currentScenarios = {
+            'live-observation': { ...DEFAULT_SCENARIOS_STATE['live-observation'], ...parsed['live-observation'] },
+            'session-summary': { ...DEFAULT_SCENARIOS_STATE['session-summary'], ...parsed['session-summary'] },
+            'semantic-search': { ...DEFAULT_SCENARIOS_STATE['semantic-search'], ...parsed['semantic-search'] },
+            'enrichment-format': { ...DEFAULT_SCENARIOS_STATE['enrichment-format'], ...parsed['enrichment-format'] },
+          };
+        }
+      } catch {}
+
+      const nextConfig = { ...currentScenarios[scenarioId], ...updates };
+      const nextScenarios = {
+        ...currentScenarios,
+        [scenarioId]: nextConfig,
+      };
+
+      let currentTasks: Record<string, string> = {};
+      try {
+        if (prev.CLAUDE_MEM_TASKS) {
+          currentTasks = JSON.parse(prev.CLAUDE_MEM_TASKS);
+        }
+      } catch {}
+
+      const def = SCENARIO_DEFINITIONS.find(s => s.id === scenarioId);
+      if (def) {
+        for (const task of def.tasks) {
+          currentTasks[task] = nextConfig.primary;
+        }
+      }
+
+      return {
+        ...prev,
+        CLAUDE_MEM_SCENARIOS: JSON.stringify(nextScenarios),
+        CLAUDE_MEM_TASKS: JSON.stringify(currentTasks),
+        CLAUDE_MEM_PREFER_COST_OPTIMIZATION: 'true',
+      };
+    });
+  }, []);
+
+  const applyPreset = useCallback((preset: 'ollama-all' | 'hybrid' | 'agy-first' | 'claude-cli-first') => {
+    let newScenarios: Record<ScenarioId, ScenarioConfigState>;
+    if (preset === 'ollama-all') {
+      newScenarios = {
+        'live-observation': { primary: 'ollama', fallback: 'gemini-cli', timeoutMs: 12000 },
+        'session-summary': { primary: 'ollama', fallback: 'gemini-cli', timeoutMs: 25000 },
+        'semantic-search': { primary: 'ollama', fallback: 'gemini-cli', timeoutMs: 10000 },
+        'enrichment-format': { primary: 'ollama', fallback: 'gemini-cli', timeoutMs: 10000 },
+      };
+    } else if (preset === 'hybrid') {
+      newScenarios = {
+        'live-observation': { primary: 'ollama', fallback: 'gemini-cli', timeoutMs: 12000 },
+        'session-summary': { primary: 'gemini-cli', fallback: 'claude-cli', timeoutMs: 25000 },
+        'semantic-search': { primary: 'ollama', fallback: 'gemini-cli', timeoutMs: 10000 },
+        'enrichment-format': { primary: 'gemini-cli', fallback: 'ollama', timeoutMs: 10000 },
+      };
+    } else if (preset === 'agy-first') {
+      newScenarios = {
+        'live-observation': { primary: 'gemini-cli', fallback: 'claude-cli', timeoutMs: 15000 },
+        'session-summary': { primary: 'gemini-cli', fallback: 'claude-cli', timeoutMs: 25000 },
+        'semantic-search': { primary: 'gemini-cli', fallback: 'claude-cli', timeoutMs: 12000 },
+        'enrichment-format': { primary: 'gemini-cli', fallback: 'claude-cli', timeoutMs: 12000 },
+      };
+    } else {
+      newScenarios = {
+        'live-observation': { primary: 'claude-cli', fallback: 'gemini-cli', timeoutMs: 15000 },
+        'session-summary': { primary: 'claude-cli', fallback: 'gemini-cli', timeoutMs: 25000 },
+        'semantic-search': { primary: 'claude-cli', fallback: 'gemini-cli', timeoutMs: 12000 },
+        'enrichment-format': { primary: 'claude-cli', fallback: 'gemini-cli', timeoutMs: 12000 },
+      };
+    }
+
+    const tasks: Record<string, string> = {};
+    for (const def of SCENARIO_DEFINITIONS) {
+      for (const t of def.tasks) {
+        tasks[t] = newScenarios[def.id].primary;
+      }
+    }
+
+    const updates: Partial<Settings> = {
+      CLAUDE_MEM_SCENARIOS: JSON.stringify(newScenarios),
+      CLAUDE_MEM_TASKS: JSON.stringify(tasks),
+      CLAUDE_MEM_PROVIDER: newScenarios['live-observation'].primary,
+      CLAUDE_MEM_PREFER_COST_OPTIMIZATION: 'true',
+    };
+
+    if ((preset === 'ollama-all' || preset === 'hybrid') && !formState.OLLAMA_ENDPOINT) {
+      updates.OLLAMA_ENDPOINT = 'http://localhost:11434';
+    }
+
+    updateMultipleSettings(updates);
+  }, [formState.OLLAMA_ENDPOINT, updateMultipleSettings]);
 
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -848,181 +970,181 @@ export function ContextSettingsModal({
                 </span>
               </FormField>
 
-              {/* Local/Free Providers subsection for Distillation */}
+              {/* Scenario-Based Routing & Fallback Policies */}
               <div className="display-subsection">
-                <span className="subsection-label">Local/Free Providers (Distillation)</span>
+                <span className="subsection-label">Scenario Routing & Automatic Fallbacks</span>
 
-                <div style={{ marginBottom: '16px', marginTop: '12px' }}>
-                  <p style={{ fontSize: '0.9em', fontWeight: '500', color: '#666', marginBottom: '8px' }}>Primary Distillation Provider:</p>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px', marginBottom: '8px' }}>
-                    {/* Ollama */}
+                <p style={{ fontSize: '0.85em', color: 'var(--color-text-secondary, #57606a)', marginBottom: '12px', lineHeight: '1.4' }}>
+                  Group memory distillation tasks into 4 logical scenarios. Each scenario specifies a <strong>Primary</strong> provider, an automatic <strong>Fallback</strong> provider if primary fails or times out, and a failover timeout.
+                </p>
+
+                {/* Quick Presets */}
+                <div style={{ marginBottom: '16px' }}>
+                  <span style={{ fontSize: '0.8em', fontWeight: 600, color: 'var(--color-text-muted, #8c959f)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Quick Presets
+                  </span>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px', marginTop: '6px' }}>
                     <button
-                      className="save-btn"
-                      onClick={() => {
-                        const allOllama = JSON.stringify({
-                          "observation-analysis":"ollama","distill":"ollama","decision-extraction":"ollama",
-                          "todo-extraction":"ollama","session-summary":"ollama","feature-summary":"ollama",
-                          "branch-summary":"ollama","briefing-generation":"ollama","context-formatting":"ollama",
-                          "decision-formatting":"ollama","todo-formatting":"ollama","semantic-search":"ollama",
-                          "embeddings-generation":"ollama","similarity-scoring":"ollama",
-                          "metadata-enrichment":"ollama","concept-extraction":"ollama","file-impact-analysis":"ollama"
-                        });
-                        
-                        const updates: Partial<Settings> = {
-                          CLAUDE_MEM_PROVIDER: 'ollama',
-                          CLAUDE_MEM_TASKS: allOllama,
-                          CLAUDE_MEM_PREFER_COST_OPTIMIZATION: 'true'
-                        };
-                        
-                        if (!formState.OLLAMA_ENDPOINT) {
-                          updates.OLLAMA_ENDPOINT = 'http://localhost:11434';
-                        }
-                        
-                        updateMultipleSettings(updates);
-                      }}
                       type="button"
-                      style={{ 
-                        fontSize: '0.9em', 
-                        padding: '8px',
-                        background: formState.CLAUDE_MEM_TASKS?.includes('"ollama"') ? 'var(--accent-color, #3b82f6)' : 'var(--color-bg-secondary, #f6f8fa)',
-                        color: formState.CLAUDE_MEM_TASKS?.includes('"ollama"') ? 'white' : 'var(--color-text-primary, #24292e)',
-                        border: formState.CLAUDE_MEM_TASKS?.includes('"ollama"') ? 'none' : '1px solid var(--color-border, #e1e4e8)'
+                      className="save-btn"
+                      onClick={() => applyPreset('hybrid')}
+                      style={{
+                        fontSize: '0.82em',
+                        padding: '6px 10px',
+                        background: 'var(--color-bg-secondary, #f6f8fa)',
+                        color: 'var(--color-text-primary, #24292e)',
+                        border: '1px solid var(--color-border, #e1e4e8)',
+                        cursor: 'pointer',
+                        borderRadius: '6px',
+                        textAlign: 'center'
                       }}
                     >
-                      🦙 Ollama
+                      ⭐ Hybrid (Ollama + agy)
                     </button>
-
-                    {/* Antigravity CLI */}
                     <button
-                      className="save-btn"
-                      onClick={() => {
-                        const allGeminiCli = JSON.stringify({
-                          "observation-analysis":"gemini-cli","distill":"gemini-cli","decision-extraction":"gemini-cli",
-                          "todo-extraction":"gemini-cli","session-summary":"gemini-cli","feature-summary":"gemini-cli",
-                          "branch-summary":"gemini-cli","briefing-generation":"gemini-cli","context-formatting":"gemini-cli",
-                          "decision-formatting":"gemini-cli","todo-formatting":"gemini-cli","semantic-search":"gemini-cli",
-                          "embeddings-generation":"gemini-cli","similarity-scoring":"gemini-cli",
-                          "metadata-enrichment":"gemini-cli","concept-extraction":"gemini-cli","file-impact-analysis":"gemini-cli"
-                        });
-                        
-                        updateMultipleSettings({
-                          CLAUDE_MEM_PROVIDER: 'gemini-cli',
-                          CLAUDE_MEM_TASKS: allGeminiCli,
-                          CLAUDE_MEM_PREFER_COST_OPTIMIZATION: 'true',
-                          OLLAMA_ENDPOINT: ''
-                        });
-                      }}
                       type="button"
-                      style={{ 
-                        fontSize: '0.9em', 
-                        padding: '8px',
-                        background: formState.CLAUDE_MEM_TASKS?.includes('"gemini-cli"') ? 'var(--accent-color, #3b82f6)' : 'var(--color-bg-secondary, #f6f8fa)',
-                        color: formState.CLAUDE_MEM_TASKS?.includes('"gemini-cli"') ? 'white' : 'var(--color-text-primary, #24292e)',
-                        border: formState.CLAUDE_MEM_TASKS?.includes('"gemini-cli"') ? 'none' : '1px solid var(--color-border, #e1e4e8)'
+                      className="save-btn"
+                      onClick={() => applyPreset('ollama-all')}
+                      style={{
+                        fontSize: '0.82em',
+                        padding: '6px 10px',
+                        background: 'var(--color-bg-secondary, #f6f8fa)',
+                        color: 'var(--color-text-primary, #24292e)',
+                        border: '1px solid var(--color-border, #e1e4e8)',
+                        cursor: 'pointer',
+                        borderRadius: '6px',
+                        textAlign: 'center'
                       }}
                     >
-                      ✨ Antigravity CLI
+                      🦙 Full Local (Ollama)
                     </button>
-
-                    {/* Claude CLI */}
                     <button
-                      className="save-btn"
-                      onClick={() => {
-                        const allClaudeCli = JSON.stringify({
-                          "observation-analysis":"claude-cli","distill":"claude-cli","decision-extraction":"claude-cli",
-                          "todo-extraction":"claude-cli","session-summary":"claude-cli","feature-summary":"claude-cli",
-                          "branch-summary":"claude-cli","briefing-generation":"claude-cli","context-formatting":"claude-cli",
-                          "decision-formatting":"claude-cli","todo-formatting":"claude-cli","semantic-search":"claude-cli",
-                          "embeddings-generation":"claude-cli","similarity-scoring":"claude-cli",
-                          "metadata-enrichment":"claude-cli","concept-extraction":"claude-cli","file-impact-analysis":"claude-cli"
-                        });
-                        
-                        updateMultipleSettings({
-                          CLAUDE_MEM_PROVIDER: 'claude-cli',
-                          CLAUDE_MEM_TASKS: allClaudeCli,
-                          CLAUDE_MEM_PREFER_COST_OPTIMIZATION: 'true',
-                          OLLAMA_ENDPOINT: ''
-                        });
-                      }}
                       type="button"
-                      style={{ 
-                        fontSize: '0.9em', 
-                        padding: '8px',
-                        background: formState.CLAUDE_MEM_TASKS?.includes('"claude-cli"') ? 'var(--accent-color, #3b82f6)' : 'var(--color-bg-secondary, #f6f8fa)',
-                        color: formState.CLAUDE_MEM_TASKS?.includes('"claude-cli"') ? 'white' : 'var(--color-text-primary, #24292e)',
-                        border: formState.CLAUDE_MEM_TASKS?.includes('"claude-cli"') ? 'none' : '1px solid var(--color-border, #e1e4e8)'
+                      className="save-btn"
+                      onClick={() => applyPreset('agy-first')}
+                      style={{
+                        fontSize: '0.82em',
+                        padding: '6px 10px',
+                        background: 'var(--color-bg-secondary, #f6f8fa)',
+                        color: 'var(--color-text-primary, #24292e)',
+                        border: '1px solid var(--color-border, #e1e4e8)',
+                        cursor: 'pointer',
+                        borderRadius: '6px',
+                        textAlign: 'center'
                       }}
                     >
-                      🤖 Claude CLI
+                      ✨ Antigravity First
                     </button>
-
-                    {/* Codex CLI */}
                     <button
-                      className="save-btn"
-                      onClick={() => {
-                        const allCodexCli = JSON.stringify({
-                          "observation-analysis":"codex-cli","distill":"codex-cli","decision-extraction":"codex-cli",
-                          "todo-extraction":"codex-cli","session-summary":"codex-cli","feature-summary":"codex-cli",
-                          "branch-summary":"codex-cli","briefing-generation":"codex-cli","context-formatting":"codex-cli",
-                          "decision-formatting":"codex-cli","todo-formatting":"codex-cli","semantic-search":"codex-cli",
-                          "embeddings-generation":"codex-cli","similarity-scoring":"codex-cli",
-                          "metadata-enrichment":"codex-cli","concept-extraction":"codex-cli","file-impact-analysis":"codex-cli"
-                        });
-                        
-                        updateMultipleSettings({
-                          CLAUDE_MEM_PROVIDER: 'codex-cli',
-                          CLAUDE_MEM_TASKS: allCodexCli,
-                          CLAUDE_MEM_PREFER_COST_OPTIMIZATION: 'true',
-                          OLLAMA_ENDPOINT: ''
-                        });
-                      }}
                       type="button"
-                      style={{ 
-                        fontSize: '0.9em', 
-                        padding: '8px',
-                        background: formState.CLAUDE_MEM_TASKS?.includes('"codex-cli"') ? 'var(--accent-color, #3b82f6)' : 'var(--color-bg-secondary, #f6f8fa)',
-                        color: formState.CLAUDE_MEM_TASKS?.includes('"codex-cli"') ? 'white' : 'var(--color-text-primary, #24292e)',
-                        border: formState.CLAUDE_MEM_TASKS?.includes('"codex-cli"') ? 'none' : '1px solid var(--color-border, #e1e4e8)'
+                      className="save-btn"
+                      onClick={() => applyPreset('claude-cli-first')}
+                      style={{
+                        fontSize: '0.82em',
+                        padding: '6px 10px',
+                        background: 'var(--color-bg-secondary, #f6f8fa)',
+                        color: 'var(--color-text-primary, #24292e)',
+                        border: '1px solid var(--color-border, #e1e4e8)',
+                        cursor: 'pointer',
+                        borderRadius: '6px',
+                        textAlign: 'center'
                       }}
                     >
-                      💻 Codex CLI
-                    </button>
-
-                    {/* Copilot CLI */}
-                    <button
-                      className="save-btn"
-                      onClick={() => {
-                        const allCopilotCli = JSON.stringify({
-                          "observation-analysis":"copilot-cli","distill":"copilot-cli","decision-extraction":"copilot-cli",
-                          "todo-extraction":"copilot-cli","session-summary":"copilot-cli","feature-summary":"copilot-cli",
-                          "branch-summary":"copilot-cli","briefing-generation":"copilot-cli","context-formatting":"copilot-cli",
-                          "decision-formatting":"copilot-cli","todo-formatting":"copilot-cli","semantic-search":"copilot-cli",
-                          "embeddings-generation":"copilot-cli","similarity-scoring":"copilot-cli",
-                          "metadata-enrichment":"copilot-cli","concept-extraction":"copilot-cli","file-impact-analysis":"copilot-cli"
-                        });
-                        
-                        updateMultipleSettings({
-                          CLAUDE_MEM_PROVIDER: 'copilot-cli',
-                          CLAUDE_MEM_TASKS: allCopilotCli,
-                          CLAUDE_MEM_PREFER_COST_OPTIMIZATION: 'true',
-                          OLLAMA_ENDPOINT: ''
-                        });
-                      }}
-                      type="button"
-                      style={{ 
-                        fontSize: '0.9em', 
-                        padding: '8px',
-                        background: formState.CLAUDE_MEM_TASKS?.includes('"copilot-cli"') ? 'var(--accent-color, #3b82f6)' : 'var(--color-bg-secondary, #f6f8fa)',
-                        color: formState.CLAUDE_MEM_TASKS?.includes('"copilot-cli"') ? 'white' : 'var(--color-text-primary, #24292e)',
-                        border: formState.CLAUDE_MEM_TASKS?.includes('"copilot-cli"') ? 'none' : '1px solid var(--color-border, #e1e4e8)'
-                      }}
-                    >
-                      ✈️ Copilot CLI
+                      🤖 Claude CLI First
                     </button>
                   </div>
-                  <p style={{ fontSize: '0.75em', color: '#999', marginTop: '4px', textAlign: 'center' }}>
-                    Click to route all 17 distillation tasks to that provider
-                  </p>
+                </div>
+
+                {/* 4 Scenario Cards */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+                  {SCENARIO_DEFINITIONS.map(sc => {
+                    const current = scenariosState[sc.id] || DEFAULT_SCENARIOS_STATE[sc.id];
+                    return (
+                      <div
+                        key={sc.id}
+                        style={{
+                          border: '1px solid var(--color-border, #e1e4e8)',
+                          borderRadius: '8px',
+                          padding: '12px 14px',
+                          background: 'var(--color-bg-primary, #ffffff)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                          <div>
+                            <span style={{ fontWeight: 600, fontSize: '0.92em', color: 'var(--color-text-primary, #24292e)' }}>
+                              {sc.icon} {sc.title}
+                            </span>
+                            <p style={{ margin: '2px 0 0', fontSize: '0.8em', color: 'var(--color-text-secondary, #57606a)' }}>
+                              {sc.description}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px', marginTop: '10px' }}>
+                          {/* Primary */}
+                          <div>
+                            <label style={{ display: 'block', fontSize: '0.75em', fontWeight: 600, color: 'var(--color-text-muted, #8c959f)', marginBottom: '4px' }}>
+                              PRIMARY PROVIDER
+                            </label>
+                            <select
+                              value={current.primary}
+                              onChange={(e) => updateScenario(sc.id, { primary: e.target.value as ProviderId })}
+                              style={{ width: '100%', fontSize: '0.82em', padding: '6px 8px', borderRadius: '5px', border: '1px solid var(--color-border, #d0d7de)' }}
+                            >
+                              {PROVIDER_SELECT_OPTIONS.map(opt => (
+                                <option key={opt.id} value={opt.id}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Fallback */}
+                          <div>
+                            <label style={{ display: 'block', fontSize: '0.75em', fontWeight: 600, color: 'var(--color-text-muted, #8c959f)', marginBottom: '4px' }}>
+                              FALLBACK PROVIDER
+                            </label>
+                            <select
+                              value={current.fallback}
+                              onChange={(e) => updateScenario(sc.id, { fallback: e.target.value as ProviderId })}
+                              style={{ width: '100%', fontSize: '0.82em', padding: '6px 8px', borderRadius: '5px', border: '1px solid var(--color-border, #d0d7de)' }}
+                            >
+                              <option value="none">🚫 None (Fail immediately)</option>
+                              {PROVIDER_SELECT_OPTIONS.map(opt => (
+                                <option key={opt.id} value={opt.id}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Timeout */}
+                          <div>
+                            <label style={{ display: 'block', fontSize: '0.75em', fontWeight: 600, color: 'var(--color-text-muted, #8c959f)', marginBottom: '4px' }}>
+                              TIMEOUT (FAILOVER)
+                            </label>
+                            <select
+                              value={current.timeoutMs}
+                              onChange={(e) => updateScenario(sc.id, { timeoutMs: Number(e.target.value) })}
+                              style={{ width: '100%', fontSize: '0.82em', padding: '6px 8px', borderRadius: '5px', border: '1px solid var(--color-border, #d0d7de)' }}
+                            >
+                              <option value={5000}>5s (Ultra fast)</option>
+                              <option value={10000}>10s (Fast)</option>
+                              <option value={12000}>12s (Default live)</option>
+                              <option value={15000}>15s (Standard)</option>
+                              <option value={25000}>25s (Extended summary)</option>
+                              <option value={40000}>40s (Deep inference)</option>
+                              <option value={60000}>60s (Maximum)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: '8px', fontSize: '0.72em', color: 'var(--color-text-muted, #8c959f)' }}>
+                          Tasks: {sc.tasks.join(', ')}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {/* Ollama */}

@@ -469,6 +469,7 @@ export interface SettingsDefaults {
   CLAUDE_MEM_SERVER_BETA_API_KEY: string;
   CLAUDE_MEM_SERVER_BETA_PROJECT_ID: string;
   CLAUDE_MEM_TASKS: string;  // JSON string of Record<MemoryTaskType, ProviderName>
+  CLAUDE_MEM_SCENARIOS: string;  // JSON string of Record<ScenarioType, ScenarioConfig>
   CLAUDE_MEM_PREFER_COST_OPTIMIZATION: string;
   OLLAMA_ENDPOINT: string;
   OLLAMA_MODEL: string;
@@ -787,6 +788,7 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_SERVER_BETA_API_KEY: '',                     // Legacy local hook API key (read as fallback when CLAUDE_MEM_SERVER_API_KEY unset)
     CLAUDE_MEM_SERVER_BETA_PROJECT_ID: '',                  // Legacy Postgres project_id (read as fallback when CLAUDE_MEM_SERVER_PROJECT_ID unset)
     CLAUDE_MEM_TASKS: '{}',                                 // Empty = use defaults from MEMORY_TASK_DEFAULTS
+    CLAUDE_MEM_SCENARIOS: '{}',                             // Empty = use defaults from DEFAULT_SCENARIOS
     CLAUDE_MEM_PREFER_COST_OPTIMIZATION: 'false',
     OLLAMA_ENDPOINT: '',                                    // Empty = Ollama disabled
     OLLAMA_MODEL: 'gpt-oss:20b',

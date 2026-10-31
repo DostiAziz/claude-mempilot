@@ -216,24 +216,21 @@ export class DistillManager {
   }
 
   private async distillObservations(observations: any[]): Promise<string> {
-    const provider = await this.providerRegistry.getForTask('distill');
     const prompt = this.buildDistillPrompt(observations);
-    return await provider.extract({ prompt });
+    return await this.providerRegistry.executeWithFallback('distill', p => p.extract({ prompt }));
   }
 
   private async extractDecisions(body: string): Promise<any[]> {
-    const provider = await this.providerRegistry.getForTask('decision-extraction');
-    return await provider.extractStructured({
+    return await this.providerRegistry.executeWithFallback('decision-extraction', p => p.extractStructured({
       prompt: `Extract architectural decisions from: ${body}`,
       schema: { decisions: { type: 'array' } },
-    });
+    }));
   }
 
   private async extractTodos(body: string): Promise<string[]> {
-    const provider = await this.providerRegistry.getForTask('todo-extraction');
-    const response = await provider.extract({
+    const response = await this.providerRegistry.executeWithFallback('todo-extraction', p => p.extract({
       prompt: `Extract actionable items from: ${body}`,
-    });
+    }));
     return response.split('\n').filter(line => line.trim());
   }
 

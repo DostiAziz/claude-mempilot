@@ -360,12 +360,17 @@ export async function runAgentTask(task: AgentTask, overrides: Partial<AgentRunn
   const dependencies = { ...defaultDependencies, ...overrides };
 
   // Read preferred agent for Work View / background tasks
-  let preferredAgent = 'auto';
-  try {
-    const settings = SettingsDefaultsManager.loadFromFile(join(homedir(), '.claude-mem', 'settings.json'), true, { readOnly: true });
-    preferredAgent = (process.env.CLAUDE_MEM_WORK_VIEW_AGENT ?? settings.CLAUDE_MEM_WORK_VIEW_AGENT ?? 'auto').toLowerCase().trim();
-  } catch {
-    preferredAgent = (process.env.CLAUDE_MEM_WORK_VIEW_AGENT ?? 'auto').toLowerCase().trim();
+  let preferredAgent = (process.env.CLAUDE_MEM_WORK_VIEW_AGENT ?? 'auto').toLowerCase().trim();
+  const isTestEnv = process.env.NODE_ENV === 'test' || process.env.BUN_ENV === 'test' || typeof Bun !== 'undefined';
+  if (preferredAgent === 'auto' && !isTestEnv) {
+    try {
+      const settings = SettingsDefaultsManager.loadFromFile(join(homedir(), '.claude-mem', 'settings.json'), true, { readOnly: true });
+      if (settings.CLAUDE_MEM_WORK_VIEW_AGENT) {
+        preferredAgent = settings.CLAUDE_MEM_WORK_VIEW_AGENT.toLowerCase().trim();
+      }
+    } catch {
+      // ignore
+    }
   }
 
   if (preferredAgent === 'disabled' || preferredAgent === 'off' || preferredAgent === 'none') {

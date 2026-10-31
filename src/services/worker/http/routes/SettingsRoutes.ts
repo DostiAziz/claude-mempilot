@@ -312,6 +312,7 @@ export class SettingsRoutes extends BaseRouteHandler {
       'CLAUDE_MEM_THERMIS_CLI_MODEL',
       'CLAUDE_MEM_PREFER_COST_OPTIMIZATION',
       'CLAUDE_MEM_TASKS',
+      'CLAUDE_MEM_SCENARIOS',
       'CLAUDE_MEM_WORK_VIEW_AUTO_REFRESH',
       'CLAUDE_MEM_WORK_VIEW_AGENT',
     ];

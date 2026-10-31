@@ -118,4 +118,74 @@ describe('ProviderRegistry', () => {
       expect(e.message).toContain('No available provider');
     }
   });
+
+  it('resolves primary provider from configured scenario', async () => {
+    const scenarioSettings = {
+      ...defaultSettings,
+      CLAUDE_MEM_SCENARIOS: JSON.stringify({
+        'live-observation': { primary: 'ollama', fallback: 'gemini-cli' },
+      }),
+    } as unknown as SettingsDefaults;
+
+    const scenarioRegistry = new ProviderRegistry(scenarioSettings);
+    scenarioRegistry.registerProvider(mockGemini);
+    scenarioRegistry.registerProvider(mockOllama);
+
+    const provider = await scenarioRegistry.getForTask('distill');
+    expect(provider.name).toBe('ollama');
+  });
+
+  it('falls back to scenario fallback provider when primary is unavailable', async () => {
+    const unavailableOllama: LlmProvider = {
+      ...mockOllama,
+      isAvailable: async () => false,
+    };
+
+    const scenarioSettings = {
+      ...defaultSettings,
+      CLAUDE_MEM_SCENARIOS: JSON.stringify({
+        'live-observation': { primary: 'ollama', fallback: 'gemini-cli' },
+      }),
+    } as unknown as SettingsDefaults;
+
+    const scenarioRegistry = new ProviderRegistry(scenarioSettings);
+    scenarioRegistry.registerProvider(unavailableOllama);
+    scenarioRegistry.registerProvider(mockGemini);
+
+    const provider = await scenarioRegistry.getForTask('distill');
+    expect(provider.name).toBe('gemini-cli');
+  });
+
+  it('executeWithFallback fails over to fallback provider at runtime if primary throws', async () => {
+    const failingOllama: LlmProvider = {
+      ...mockOllama,
+      isAvailable: async () => true,
+      extract: async () => {
+        throw new Error('Ollama out of memory / timeout');
+      },
+    };
+
+    const workingGemini: LlmProvider = {
+      ...mockGemini,
+      isAvailable: async () => true,
+      extract: async () => 'successful-distill-from-gemini',
+    };
+
+    const scenarioSettings = {
+      ...defaultSettings,
+      CLAUDE_MEM_SCENARIOS: JSON.stringify({
+        'live-observation': { primary: 'ollama', fallback: 'gemini-cli', timeoutMs: 1000 },
+      }),
+    } as unknown as SettingsDefaults;
+
+    const scenarioRegistry = new ProviderRegistry(scenarioSettings);
+    scenarioRegistry.registerProvider(failingOllama);
+    scenarioRegistry.registerProvider(workingGemini);
+
+    const result = await scenarioRegistry.executeWithFallback('distill', p =>
+      p.extract({ prompt: 'test' })
+    );
+
+    expect(result).toBe('successful-distill-from-gemini');
+  });
 });
