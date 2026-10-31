@@ -1160,6 +1160,8 @@ var init_SettingsDefaultsManager = __esm({
         // Backend-supplied model paired with CLAUDE_MEM_PRO_MEMORY_KEY
         CLAUDE_MEM_WORK_VIEW_AUTO_REFRESH: "true",
         // 'false' = My Work never runs owner-goals / request-progress on its own (refresh.json in ~/.claude-mem/work-view)
+        CLAUDE_MEM_WORK_VIEW_AGENT: "auto",
+        // 'antigravity-cli' | 'claude-code' | 'codex' | 'auto' | 'disabled' - preferred agent CLI for background tasks
         CLAUDE_MEM_WORK_VIEW_COPY_PROVIDER: "",
         // '' uses OpenRouter only when it is the primary provider; openrouter/openai-compatible explicitly select that provider; off disables generated My Work copy
         CLAUDE_MEM_WORK_VIEW_COPY_MODEL: "",

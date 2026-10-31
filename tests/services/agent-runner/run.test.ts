@@ -387,7 +387,7 @@ describe('agent runner', () => {
     try {
       const result = await runTask(task(cwd), { detect: async () => agents('claude-code', 'codex', 'gemini'), query, spawn: spawnImpl, buildEnv: env });
       expect(result).toMatchObject({ state: 'failed', agent: 'gemini' });
-      expect(result.error).toMatch(/^Claude Code: .*narrative is 22000 characters.* · Codex: codex exec exited 1: story refused · Gemini: gemini exited 55: not running in a trusted directory$/);
+      expect(result.error).toMatch(/^Claude Code: .*narrative is 22000 characters.* · Codex: codex exec exited 1: story refused · (?:Gemini|Antigravity CLI): gemini exited 55: not running in a trusted directory$/);
     } finally { rmSync(cwd, { recursive: true, force: true }); }
   });
 
@@ -447,5 +447,54 @@ describe('agent runner', () => {
     expect(Date.now() - started).toBeGreaterThanOrEqual(1400);
     expect(result.state).toBe('ok');
     expect(calls[0].child.killed).toBe(false);
+  });
+
+  it('Antigravity CLI (agy): runs with native print and json output flags', async () => {
+    const calls: SpawnCall[] = [];
+    const spawnImpl = fakeSpawn(calls, call => {
+      call.child.stdout.emit('data', JSON.stringify({ response: '{"ok":"agy"}' }));
+      call.child.emit('close', 0);
+    });
+    const agyAgent: UsableAgent = { id: 'gemini', path: '/usr/local/bin/agy', authenticated: true, reason: 'Antigravity CLI' };
+    const result = await runTask(task('/data'), { detect: async () => [agyAgent], query: neverQuery, spawn: spawnImpl, buildEnv: env });
+    expect(result).toEqual({ state: 'ok', agent: 'gemini', result: 'inline done: {"ok":"agy"}', error: null, attempts: [] });
+    expect(calls[0].command).toBe('/usr/local/bin/agy');
+    expect(calls[0].args).toContain('-p');
+    expect(calls[0].args).toContain('--output-format');
+    expect(calls[0].args).toContain('json');
+    expect(calls[0].args).toContain('--dangerously-skip-permissions');
+  });
+
+  it('respects CLAUDE_MEM_WORK_VIEW_AGENT=disabled to prevent background tasks', async () => {
+    const originalEnv = process.env.CLAUDE_MEM_WORK_VIEW_AGENT;
+    process.env.CLAUDE_MEM_WORK_VIEW_AGENT = 'disabled';
+    try {
+      const calls: SpawnCall[] = [];
+      const result = await runTask(task('/data'), { detect: async () => agents('gemini'), query: neverQuery, spawn: fakeSpawn(calls, () => {}), buildEnv: env });
+      expect(result.state).toBe('waiting-for-agent');
+      expect(result.error).toMatch(/disabled/i);
+      expect(calls).toHaveLength(0);
+    } finally {
+      process.env.CLAUDE_MEM_WORK_VIEW_AGENT = originalEnv;
+    }
+  });
+
+  it('respects CLAUDE_MEM_WORK_VIEW_AGENT=antigravity-cli to enforce Antigravity selection', async () => {
+    const originalEnv = process.env.CLAUDE_MEM_WORK_VIEW_AGENT;
+    process.env.CLAUDE_MEM_WORK_VIEW_AGENT = 'antigravity-cli';
+    try {
+      const calls: SpawnCall[] = [];
+      const spawnImpl = fakeSpawn(calls, call => {
+        call.child.stdout.emit('data', JSON.stringify({ response: 'agy-result' }));
+        call.child.emit('close', 0);
+      });
+      // Both codex and gemini are usable, but antigravity-cli should be selected
+      const result = await runTask(task('/data'), { detect: async () => agents('codex', 'gemini'), query: neverQuery, spawn: spawnImpl, buildEnv: env });
+      expect(result.state).toBe('ok');
+      expect(result.agent).toBe('gemini');
+      expect(calls[0].command).toBe('/bin/gemini');
+    } finally {
+      process.env.CLAUDE_MEM_WORK_VIEW_AGENT = originalEnv;
+    }
   });
 });

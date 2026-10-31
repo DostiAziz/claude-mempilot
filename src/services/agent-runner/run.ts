@@ -30,14 +30,15 @@
 
 import { randomBytes } from 'crypto';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
-import { tmpdir } from 'os';
-import { dirname, isAbsolute, join, relative, resolve } from 'path';
+import { homedir, tmpdir } from 'os';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
 import { query, type CanUseTool, type Options, type SdkPluginConfig } from '@anthropic-ai/claude-agent-sdk';
 import { buildIsolatedEnvWithFreshOAuth } from '../../shared/EnvManager.js';
 import { sanitizeEnv } from '../../supervisor/env-sanitizer.js';
 import { logger } from '../../utils/logger.js';
 import { runtimeReadRoots } from './runtime-read-roots.js';
 import { detectUsableAgents, GEMINI_NO_MCP_SERVERS, runCommand, type CommandResult, type UsableAgent, type UsableAgentId } from './detect.js';
+import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 
 /** The model one step runs on: a Claude Code alias, a Codex model id (with reasoning effort) or a Gemini alias.
  * A missing entry or field leaves that CLI's own default. */
@@ -295,6 +296,32 @@ function codexAsk(agent: UsableAgent, task: AgentTask, dependencies: AgentRunner
 function geminiAsk(agent: UsableAgent, task: AgentTask, dependencies: AgentRunnerDependencies): AskAgent {
   return async (prompt, models) => {
     const env = await dependencies.buildEnv();
+    const isAgy = agent.path && (agent.path.endsWith('/agy') || agent.path.endsWith('\\agy.exe') || agent.path === 'agy' || basename(agent.path) === 'agy');
+
+    if (isAgy) {
+      const model = models.gemini?.model;
+      const args = [
+        '-p', prompt,
+        '--output-format', 'json',
+        '--dangerously-skip-permissions',
+        '--disable-slash-commands',
+      ];
+      if (model) {
+        args.push('--model', model);
+      }
+      const result = await runCli(agent.path!, args, '', { cwd: task.cwd, env });
+      if (result.exitCode !== 0) throw failure('agy', result);
+      let output: { response?: unknown; error?: { message?: string } };
+      try { output = JSON.parse(result.stdout); }
+      catch { throw new Error(`agy printed unreadable JSON: ${result.stdout.slice(0, 200)}`); }
+      if (output.error) throw new Error(`agy failed: ${output.error.message ?? 'unknown error'}`);
+      if (typeof output.response !== 'string') throw new Error('agy answered without a response.');
+      let text = output.response.trim();
+      const codeblock = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+      if (codeblock) text = codeblock[1].trim();
+      return text;
+    }
+
     const model = models.gemini?.model;
     const policyDir = mkdtempSync(join(tmpdir(), 'claude-mem-gemini-policy-'));
     const policyPath = join(policyDir, 'settings.json');
@@ -325,15 +352,48 @@ function geminiAsk(agent: UsableAgent, task: AgentTask, dependencies: AgentRunne
  * when a run fails, not when the agent's answer was refused. Never throws. With no logged-in agent it returns
  * `waiting-for-agent` and runs nothing.
  */
-const agentNames: Record<UsableAgentId, string> = { 'claude-code': 'Claude Code', codex: 'Codex', gemini: 'Gemini' };
+const agentNames: Record<UsableAgentId, string> = { 'claude-code': 'Claude Code', codex: 'Codex', gemini: 'Antigravity CLI' };
 
 export async function runAgentTask(task: AgentTask, overrides: Partial<AgentRunnerDependencies> = {}): Promise<AgentRunResult> {
   const autoApprovedFileTools = task.claudeCode.allowedTools.filter(tool => FILE_TOOLS.includes(tool));
   if (autoApprovedFileTools.length) throw new Error(`Agent task ${task.reason} auto-approves ${autoApprovedFileTools.join(', ')}, which would read anywhere on disk; name readableFolders instead.`);
   const dependencies = { ...defaultDependencies, ...overrides };
-  const usable = (await dependencies.detect()).filter(agent => agent.authenticated && agent.path);
+
+  // Read preferred agent for Work View / background tasks
+  let preferredAgent = 'auto';
+  try {
+    const settings = SettingsDefaultsManager.loadFromFile(join(homedir(), '.claude-mem', 'settings.json'), true, { readOnly: true });
+    preferredAgent = (process.env.CLAUDE_MEM_WORK_VIEW_AGENT ?? settings.CLAUDE_MEM_WORK_VIEW_AGENT ?? 'auto').toLowerCase().trim();
+  } catch {
+    preferredAgent = (process.env.CLAUDE_MEM_WORK_VIEW_AGENT ?? 'auto').toLowerCase().trim();
+  }
+
+  if (preferredAgent === 'disabled' || preferredAgent === 'off' || preferredAgent === 'none') {
+    return { state: 'waiting-for-agent', agent: null, result: null, error: 'Background agent tasks are disabled in settings (CLAUDE_MEM_WORK_VIEW_AGENT=disabled).', attempts: [] };
+  }
+
+  const detected = await dependencies.detect();
+  let usable = detected.filter(agent => agent.authenticated && agent.path);
+
+  if (preferredAgent === 'antigravity-cli' || preferredAgent === 'antigravity' || preferredAgent === 'gemini' || preferredAgent === 'gemini-cli') {
+    usable = usable.filter(agent => agent.id === 'gemini');
+    if (!usable.length) {
+      return { state: 'waiting-for-agent', agent: null, result: null, error: 'Antigravity CLI is selected as preferred agent, but is not installed or authenticated.', attempts: [] };
+    }
+  } else if (preferredAgent === 'claude-code' || preferredAgent === 'claude') {
+    usable = usable.filter(agent => agent.id === 'claude-code');
+    if (!usable.length) {
+      return { state: 'waiting-for-agent', agent: null, result: null, error: 'Claude Code is selected as preferred agent, but is not installed or authenticated.', attempts: [] };
+    }
+  } else if (preferredAgent === 'codex' || preferredAgent === 'codex-cli') {
+    usable = usable.filter(agent => agent.id === 'codex');
+    if (!usable.length) {
+      return { state: 'waiting-for-agent', agent: null, result: null, error: 'Codex is selected as preferred agent, but is not installed or authenticated.', attempts: [] };
+    }
+  }
+
   if (!usable.length) {
-    return { state: 'waiting-for-agent', agent: null, result: null, error: 'No logged-in Claude Code, Codex or Gemini on this computer yet.', attempts: [] };
+    return { state: 'waiting-for-agent', agent: null, result: null, error: 'No logged-in Claude Code, Antigravity CLI or Codex on this computer yet.', attempts: [] };
   }
   const attempts: AgentAttempt[] = [];
   try { await task.prepare?.(); }

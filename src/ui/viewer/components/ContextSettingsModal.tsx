@@ -1130,6 +1130,48 @@ export function ContextSettingsModal({
                     </div>
                   );
                 })()}
+                {/* Work View & Background Tasks Agent */}
+                <div style={{ marginTop: '16px', padding: '12px', background: 'var(--color-bg-secondary, #f6f8fa)', borderRadius: '6px', border: '1px solid var(--color-border, #e1e4e8)' }}>
+                  <span style={{ fontSize: '0.95em', fontWeight: '600', color: 'var(--color-text-primary, #24292e)' }}>
+                    Work View & Background Tasks Agent
+                  </span>
+                  <p style={{ fontSize: '0.8em', color: '#666', marginTop: '4px', marginBottom: '8px' }}>
+                    Choose which CLI agent processes background tasks (My Work cards, task grouping, goal refresh).
+                  </p>
+                  <FormField
+                    label="Preferred Agent"
+                    tooltip="Select the CLI tool used for background Work View tasks"
+                  >
+                    <select
+                      value={formState.CLAUDE_MEM_WORK_VIEW_AGENT ?? 'auto'}
+                      onChange={(e) => updateSetting('CLAUDE_MEM_WORK_VIEW_AGENT', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--color-border, #d0d7de)',
+                        background: 'var(--color-canvas-default, #fff)',
+                        color: 'var(--color-text-primary, #24292e)'
+                      }}
+                    >
+                      <option value="auto">⚡ Auto (Antigravity CLI → Claude Code → Codex)</option>
+                      <option value="antigravity-cli">✨ Antigravity CLI (agy) - Active Subscription</option>
+                      <option value="claude-code">🤖 Claude Code CLI</option>
+                      <option value="codex">💻 Codex CLI</option>
+                      <option value="disabled">🚫 Disabled (Never run background tasks)</option>
+                    </select>
+                  </FormField>
+
+                  <div className="toggle-group" style={{ marginTop: '10px' }}>
+                    <ToggleSwitch
+                      id="work-view-auto-refresh"
+                      label="Enable Auto-Refresh"
+                      description="Automatically refresh Work View tasks every 10 minutes using the preferred agent above"
+                      checked={(formState.CLAUDE_MEM_WORK_VIEW_AUTO_REFRESH ?? 'true') !== 'false'}
+                      onChange={(checked) => updateSetting('CLAUDE_MEM_WORK_VIEW_AUTO_REFRESH', checked ? 'true' : 'false')}
+                    />
+                  </div>
+                </div>
               </div>
 
               <FormField

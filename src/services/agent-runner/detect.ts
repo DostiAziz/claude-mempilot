@@ -268,7 +268,18 @@ async function detectCodex(dependencies: AgentDetectionDependencies): Promise<Us
 }
 
 async function detectGemini(dependencies: AgentDetectionDependencies): Promise<UsableAgent> {
-  const resolved = await resolveOnPath(dependencies, 'gemini');
+  // Support Antigravity CLI ('agy') as the primary Google agent, falling back to 'gemini'
+  const customBinary = dependencies.environment.CLAUDE_MEM_GEMINI_CLI_BINARY?.trim();
+  let resolved: { path: string | null; reason: string } = { path: null, reason: '' };
+  if (customBinary) {
+    resolved = await resolveOnPath(dependencies, customBinary);
+  }
+  if (!resolved.path) {
+    resolved = await resolveOnPath(dependencies, 'agy');
+  }
+  if (!resolved.path) {
+    resolved = await resolveOnPath(dependencies, 'gemini');
+  }
   if (resolved.path === null) return { id: 'gemini', path: null, authenticated: false, reason: resolved.reason };
   const path = resolved.path;
 
@@ -319,9 +330,24 @@ function geminiLoginFingerprint(dependencies: AgentDetectionDependencies, creden
   return createHash('sha256').update(material).digest('hex');
 }
 
-/** Starts Gemini headless with no prompt: it signs in, then exits before any model request (see the header). */
+/** Starts Gemini or Antigravity CLI headless with no prompt: it signs in, then exits before any model request. */
 async function probeGeminiAccount(dependencies: AgentDetectionDependencies, path: string, selectedType: string): Promise<UsableAgent> {
-  // CLAUDE_MEM_INTERNAL=1 keeps claude-mem's own Gemini hooks from recording the probe.
+  const isAgy = path.endsWith('/agy') || path.endsWith('\\agy.exe') || path === 'agy' || path.includes('agy');
+  if (isAgy) {
+    const result = await runCommand(dependencies.spawn, path, ['-p', 'ping', '--output-format', 'text', '--dangerously-skip-permissions', '--disable-slash-commands'], {
+      cwd: dependencies.homeDirectory(), env: { ...dependencies.environment, CLAUDE_MEM_INTERNAL: '1' }, input: '',
+    });
+    if (result.exitCode === 0) {
+      return { id: 'gemini', path, authenticated: true, reason: `auth type ${selectedType}: Antigravity CLI (agy) signed in and ready` };
+    }
+    const authenticationError = /Error authenticating:\s*(.+)/.exec(result.stderr)?.[1]?.trim();
+    if (authenticationError) {
+      return { id: 'gemini', path, authenticated: false, reason: `Antigravity CLI sign-in failed: ${authenticationError}` };
+    }
+    return { id: 'gemini', path, authenticated: false, reason: commandFailureReason('agy (account check)', result) };
+  }
+
+  // Legacy Gemini CLI probe
   const result = await runCommand(dependencies.spawn, path, GEMINI_ACCOUNT_PROBE_ARGS, {
     cwd: dependencies.homeDirectory(), env: { ...dependencies.environment, CLAUDE_MEM_INTERNAL: '1' }, input: '',
   });
