@@ -105,7 +105,7 @@ describe('buildWorkStateContextSection', () => {
   it('gives the rule, naming the tools, then what is still open', () => {
     const section = buildWorkStateContextSection(releaseEntries(), NOW_EPOCH);
 
-    expect(section).toStartWith("# Work state: your to-do lists and working state\nUse claude-mem's work_state_write tool to track all to-do lists and multi-step work.");
+    expect(section).toStartWith("# Work state: your to-do lists and working state\nUse Mempilot's work_state_write tool to track all to-do lists and multi-step work.");
     expect(section).toContain('It is your canonical to-do list: use it instead of any built-in to-do tool.');
     // A bare work_state_read shows only what is open, so the hint for closed items names the flag.
     expect(section).toContain('\n- Read every list, closed items included: work_state_read with includeClosed=true\n');

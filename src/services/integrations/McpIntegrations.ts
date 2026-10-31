@@ -8,11 +8,11 @@ import { readJsonSafe } from '../../utils/json-utils.js';
 import { stripUtf8Bom } from '../../shared/atomic-json.js';
 import { injectContextIntoMarkdownFile } from '../../utils/context-injection.js';
 
-export const PLACEHOLDER_CONTEXT = `# claude-mem: Cross-Session Memory
+export const PLACEHOLDER_CONTEXT = `# Mempilot: Cross-Session Memory
 
 *No context yet. Complete your first session and context will appear here.*
 
-Use claude-mem's MCP search tools for manual memory queries.`;
+Use Mempilot's MCP search tools for manual memory queries.`;
 
 export function buildMcpServerEntry(mcpServerPath: string): { command: string; args: string[] } {
   return {

@@ -135,7 +135,7 @@ describe('SearchRoutes Welcome Hint', () => {
 
     expect(res.send).toHaveBeenCalledTimes(1);
     const body = (res.send as any).mock.calls[0][0] as string;
-    expect(body).toContain('# claude-mem status');
+    expect(body).toContain('# mempilot status');
     expect(body).toContain('/learn-codebase');
     expect(body).toContain('http://localhost:');
     expect(body).toContain('Memory injection starts on your second session in a project.');
@@ -174,11 +174,11 @@ describe('SearchRoutes Welcome Hint', () => {
     const body = (res.send as any).mock.calls[0][0] as string;
     expect(body).toContain("claude-mem can't save memories right now");
     expect(body).toContain('What to do: It resets on the 1st. Upgrade or add credits to keep going now.');
-    expect(body).toContain('# claude-mem status');
+    expect(body).toContain('# mempilot status');
     expect(body).toContain('disappears once the first observation lands');
     // Hint first, warning second — same order as normal context, so the
     // warning is the last thing on screen rather than the first thing scrolled off.
-    expect(body.indexOf('# claude-mem status')).toBeLessThan(body.indexOf('What to do:'));
+    expect(body.indexOf('# mempilot status')).toBeLessThan(body.indexOf('What to do:'));
     expect(generateContextStub).not.toHaveBeenCalled();
   });
 
@@ -215,9 +215,9 @@ describe('SearchRoutes Welcome Hint', () => {
     const body = (res.send as any).mock.calls[0][0] as string;
     expect(body).toContain('paused while a provider quota cooldown is active');
     expect(body).toContain('This is not a failure');
-    expect(body).toContain('# claude-mem status');
+    expect(body).toContain('# mempilot status');
     expect(body).not.toContain("can't save memories");
-    expect(body.indexOf('# claude-mem status')).toBeLessThan(body.indexOf('quota cooldown'));
+    expect(body.indexOf('# mempilot status')).toBeLessThan(body.indexOf('quota cooldown'));
     expect(generateContextStub).not.toHaveBeenCalled();
   });
 
@@ -344,7 +344,7 @@ describe('SearchRoutes Welcome Hint', () => {
     await new Promise(resolve => setImmediate(resolve));
 
     const body = (emptyRes.send as any).mock.calls[0][0] as string;
-    expect(body).toContain('# claude-mem status');
+    expect(body).toContain('# mempilot status');
     expect(generateContextStub).not.toHaveBeenCalled();
   });
 
@@ -475,7 +475,7 @@ describe('SearchRoutes Welcome Hint', () => {
       const body = (res.send as any).mock.calls[0][0] as string;
       expect(body).toStartWith('# Work state: your to-do lists and working state');
       expect(body).toContain('  - [todo] publish');
-      expect(body.indexOf('Still open:')).toBeLessThan(body.indexOf('# claude-mem status'));
+      expect(body.indexOf('Still open:')).toBeLessThan(body.indexOf('# mempilot status'));
     });
 
     // #4606: a host that tracks work its own way can turn the section off, so
@@ -558,7 +558,7 @@ describe('SearchRoutes Welcome Hint', () => {
       await new Promise(resolve => setImmediate(resolve));
 
       const body = (res.send as any).mock.calls[0][0] as string;
-      expect(body).toStartWith('# claude-mem status');
+      expect(body).toStartWith('# mempilot status');
       expect(body).not.toContain('work_state_write');
     });
 

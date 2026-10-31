@@ -91,7 +91,7 @@ const SETTINGS_CACHE_TTL_MS = 5000;
 
 /** Bound on the session-start pull when sync's Realtime channel is not live. */
 
-const WELCOME_HINT_TEMPLATE = `# claude-mem status
+const WELCOME_HINT_TEMPLATE = `# mempilot status
 
 This project has no memory yet. The current session will seed it; subsequent sessions will receive auto-injected context for relevant past work.
 
