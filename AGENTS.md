@@ -75,7 +75,24 @@ The 17 granular memory tasks are categorized into **4 Logical Scenarios** config
 
 ---
 
-## 5. Build, Test, and Verification
+## 5. Host Integrations & Hook Contracts
+
+* **OpenAI Codex**:
+  * Reads `AGENTS.md` at repo root for workspace guidelines and tool instructions.
+  * Uses `plugin/hooks/codex-hooks.json` for hook lifecycle registration.
+  * During hook execution, stdout is strictly reserved for JSON payloads; never output stray log messages to stdout.
+* **Google Antigravity CLI (`agy`)**:
+  * Reads `AGENTS.md` at repo root.
+  * Communicates using protojson (`injectSteps`, `PreToolUse` allow).
+* **Claude Code**:
+  * Reads `CLAUDE.md`.
+  * Injects context using `hookSpecificOutput.additionalContext`.
+* **Cursor & Windsurf**:
+  * Read `.cursorrules` and `.windsurf/rules/` for editor-level guidelines.
+
+---
+
+## 6. Build, Test, and Verification
 
 ```bash
 # Build all plugin bundles and React Viewer
