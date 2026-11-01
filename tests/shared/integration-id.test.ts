@@ -5,10 +5,20 @@ import { claudeCodeAdapter } from '../../src/cli/adapters/claude-code.js';
 import { detectInstalledIDEs } from '../../src/npx-cli/commands/ide-detection.js';
 
 describe("'claude' is an alias for Claude Code (#2835)", () => {
-  it('canonicalizes claude and leaves every other id alone', () => {
+  it('canonicalizes claude and common CLI aliases', () => {
     expect(canonicalIntegrationId('claude')).toBe('claude-code');
+    expect(canonicalIntegrationId('claudecode-cli')).toBe('claude-code');
+    expect(canonicalIntegrationId('claudecode')).toBe('claude-code');
+    expect(canonicalIntegrationId('claude-cli')).toBe('claude-code');
     expect(canonicalIntegrationId('claude-code')).toBe('claude-code');
+    expect(canonicalIntegrationId('cursor-cli')).toBe('cursor');
     expect(canonicalIntegrationId('cursor')).toBe('cursor');
+    expect(canonicalIntegrationId('codex')).toBe('codex-cli');
+    expect(canonicalIntegrationId('codex-cli')).toBe('codex-cli');
+    expect(canonicalIntegrationId('copilot')).toBe('copilot-cli');
+    expect(canonicalIntegrationId('copilot-cli')).toBe('copilot-cli');
+    expect(canonicalIntegrationId('agy')).toBe('antigravity');
+    expect(canonicalIntegrationId('antigravity-cli')).toBe('antigravity');
   });
 
   it('names an IDE the installer knows, so --ide claude is not an unknown IDE', () => {

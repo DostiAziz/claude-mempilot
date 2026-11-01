@@ -1,9 +1,9 @@
 <claude-mem-context>
-# claude-mem: Cross-Session Memory
+# Mempilot: Cross-Session Memory
 
 *No context yet. Complete your first session and context will appear here.*
 
-Use claude-mem's MCP search tools for manual memory queries.
+Use Mempilot's MCP search tools for manual memory queries.
 </claude-mem-context>
 
 # GitHub Copilot Repository Instructions for Mempilot
