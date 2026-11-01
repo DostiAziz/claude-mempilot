@@ -58,8 +58,10 @@ export class GeminiCliProvider implements LlmProvider {
       let stderr = '';
 
       try {
-        // Use '-p -' to read prompt from stdin, and '--model' to set the model
-        const proc = spawn(this.binary, ['-p', '-', '--model', this.model], {
+        // Legacy gemini CLI test expects '-p -'; Antigravity CLI (agy) takes the prompt string directly via '-p <prompt>'
+        const isAgy = /(?:^|[\\/])agy$/i.test(this.binary);
+        const promptFlagArg = isAgy ? input.prompt : '-';
+        const proc = spawn(this.binary, ['-p', promptFlagArg, '--model', this.model], {
           stdio: ['pipe', 'pipe', 'pipe'],
         });
 

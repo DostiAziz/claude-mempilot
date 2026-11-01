@@ -115,6 +115,7 @@ function main() {
 
     const version = getPluginVersion();
     const CACHE_VERSION_PATH = path.join(CACHE_BASE_PATH, version);
+    const LEGACY_CACHE_VERSION_PATH = path.join(os.homedir(), '.claude', 'plugins', 'cache', 'thedotmack', 'claude-mem', version);
 
     const pluginDir = path.join(rootDir, 'plugin');
 
@@ -123,6 +124,12 @@ function main() {
       exclude: ['.git', ...getGitignoreExcludes(pluginDir)]
     });
     console.log(`Cache: ${cache.copied} copied, ${cache.metadata} metadata reconciled, ${cache.deleted} stale removed`);
+
+    if (existsSync(path.dirname(LEGACY_CACHE_VERSION_PATH))) {
+      mirrorDirectory(pluginDir, LEGACY_CACHE_VERSION_PATH, {
+        exclude: ['.git', ...getGitignoreExcludes(pluginDir)]
+      });
+    }
 
     console.log(`Running bun install in cache folder (version ${version})...`);
     execSync(`bun install`, { cwd: CACHE_VERSION_PATH, stdio: 'inherit' });

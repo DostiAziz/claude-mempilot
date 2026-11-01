@@ -156,5 +156,27 @@ describe('observation writer: branch_name stamping', () => {
 
     expect(obs.branch_name).toBeNull();
   });
+
+  it('resolves git branch from sdk_sessions.cwd when project is a logical project name', () => {
+    const memorySessionId = createSessionWithMemoryId('content-cwd-1', 'mem-cwd-1', 'claude-mempilot');
+    store['db']
+      .prepare('UPDATE sdk_sessions SET cwd = ? WHERE memory_session_id = ?')
+      .run(repoPath, memorySessionId);
+
+    const result = store.storeObservation(
+      memorySessionId,
+      'claude-mempilot',
+      createObservationInput({
+        title: 'Logical project name observation',
+        narrative: 'Written when project is a name rather than a filesystem path',
+      })
+    );
+
+    const obs = store['db']
+      .prepare('SELECT branch_name FROM observations WHERE id = ?')
+      .get(result.id) as { branch_name: string | null };
+
+    expect(obs.branch_name).toBe('feature/foo');
+  });
 });
 

@@ -1162,6 +1162,89 @@ Optional Dumb search: \`dumb_search({query, project})\`. Doesn’t reason about 
       if (typeof name !== 'string' || name.trim() === '') throw new Error('Missing required argument: name');
       return await callWorker(`/api/corpus/${encodeURIComponent(name)}/reprime`, { body: rest, streamCorpusProgress: true });
     }
+  },
+  {
+    name: 'list_features',
+    description: 'List tracked feature branches in the Mempilot Knowledge Graph with their status (open, merged, abandoned) and latest distillation timestamp.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', description: 'Optional status filter: open, merged, abandoned, or all (default: all)' },
+        project: { type: 'string', description: 'Optional project name; defaults to current checkout' },
+        limit: { type: 'number', description: 'Maximum rows to return (default: 20)' }
+      },
+      additionalProperties: false
+    },
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    handler: async (args: any) => {
+      return await callWorker('/api/knowledge-graph/features', {
+        query: { ...withCheckoutProjects(args ?? {}, currentCheckout()), format: 'text' },
+        text: true,
+      });
+    }
+  },
+  {
+    name: 'get_feature_history',
+    description: 'Walk through the chronological chain of distilled reflections, architectural decisions, and TODOs for a specific feature branch or feature ID (e.g. "feature/foo" or "F#12").',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        feature_name: { type: 'string', description: 'Feature branch name, title, or ID (e.g. "feature/auth" or "F#12")' },
+        project: { type: 'string', description: 'Optional project name; defaults to current checkout' }
+      },
+      required: ['feature_name'],
+      additionalProperties: false
+    },
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    handler: async (args: any) => {
+      if (typeof args?.feature_name !== 'string' || !args.feature_name.trim()) {
+        throw new Error('Missing required argument: feature_name');
+      }
+      return await callWorker('/api/knowledge-graph/feature-history', {
+        query: { ...withCheckoutProjects(args ?? {}, currentCheckout()), format: 'text' },
+        text: true,
+      });
+    }
+  },
+  {
+    name: 'list_decisions',
+    description: 'Query architectural decisions distilled across feature branches in the Mempilot Knowledge Graph. Filter by topic keyword to see what was chosen and why.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        topic: { type: 'string', description: 'Optional topic or keyword filter (matches topic, choice, or reason)' },
+        project: { type: 'string', description: 'Optional project name; defaults to current checkout' },
+        limit: { type: 'number', description: 'Maximum rows to return (default: 20)' }
+      },
+      additionalProperties: false
+    },
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    handler: async (args: any) => {
+      return await callWorker('/api/knowledge-graph/decisions', {
+        query: { ...withCheckoutProjects(args ?? {}, currentCheckout()), format: 'text' },
+        text: true,
+      });
+    }
+  },
+  {
+    name: 'list_open_todos',
+    description: 'List open actionable TODOs extracted by the Mempilot Knowledge Graph distillation pipeline across feature branches.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Optional project name; defaults to current checkout' },
+        status: { type: 'string', description: 'Status filter: open, done, cancelled, or all (default: open)' },
+        limit: { type: 'number', description: 'Maximum rows to return (default: 20)' }
+      },
+      additionalProperties: false
+    },
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    handler: async (args: any) => {
+      return await callWorker('/api/knowledge-graph/todos', {
+        query: { ...withCheckoutProjects(args ?? {}, currentCheckout()), format: 'text' },
+        text: true,
+      });
+    }
   }
 ];
 

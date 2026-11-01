@@ -38,6 +38,17 @@ interface ContextInjectRender {
   readKeys?: string[];
 }
 import { buildWorkStateContextSection } from '../../../context/sections/WorkStateRenderer.js';
+import {
+  renderBriefingExtensions,
+  queryKnowledgeGraphFeatures,
+  queryKnowledgeGraphDecisions,
+  queryKnowledgeGraphTodos,
+  queryFeatureHistory,
+  formatFeaturesMcpText,
+  formatDecisionsMcpText,
+  formatTodosMcpText,
+  formatFeatureHistoryMcpText,
+} from '../../../context/sections/BriefingExtensions.js';
 import { isWorkStateEnabled } from '../../../../shared/work-state-setting.js';
 import { SettingsDefaultsManager } from '../../../../shared/SettingsDefaultsManager.js';
 import { getViewerBaseUrl } from '../../../../shared/worker-utils.js';
@@ -244,6 +255,11 @@ export class SearchRoutes extends BaseRouteHandler {
     app.get('/api/onboarding/explainer', this.handleOnboardingExplainer.bind(this));
 
     app.get('/api/timeline/by-query', this.handleGetTimelineByQuery.bind(this));
+
+    app.get('/api/knowledge-graph/features', this.handleListFeatures.bind(this));
+    app.get('/api/knowledge-graph/feature-history', this.handleGetFeatureHistory.bind(this));
+    app.get('/api/knowledge-graph/decisions', this.handleListDecisions.bind(this));
+    app.get('/api/knowledge-graph/todos', this.handleListTodos.bind(this));
   }
 
   private handleUnifiedSearch = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
@@ -556,6 +572,22 @@ export class SearchRoutes extends BaseRouteHandler {
     const withWorkState = (text: string): string =>
       workStateSection && text ? `${workStateSection}\n\n${text}` : workStateSection || text;
 
+    const briefingExtensionsRaw = process.env.CLAUDE_MEM_BRIEFING_EXTENSIONS ?? (settings as Record<string, unknown>).CLAUDE_MEM_BRIEFING_EXTENSIONS;
+    const briefingExtensionsEnabled = String(briefingExtensionsRaw ?? 'true').toLowerCase() !== 'false';
+    let briefingSection = '';
+    if (!forHuman && briefingExtensionsEnabled) {
+      try {
+        const rawDb = this.searchManager.getSessionStore()?.db;
+        if (rawDb) {
+          briefingSection = renderBriefingExtensions(rawDb, projects);
+        }
+      } catch {
+        briefingSection = '';
+      }
+    }
+    const withBriefingExtensions = (text: string): string =>
+      briefingSection && text ? `${text}\n\n${briefingSection}` : text || briefingSection;
+
     // Env always wins over cached settings (mirrors SettingsDefaultsManager
     // applyEnvOverrides semantics). Reading process.env is free, so honoring it
     // here keeps the welcome-hint toggle responsive without waiting out the
@@ -596,14 +628,16 @@ export class SearchRoutes extends BaseRouteHandler {
       // Beside the work-state section: room for what the hook appends after
       // this body once the install is in a team (the TeamBrain brief). Env
       // first, as the hook reads it.
-      reserveChars: (workStateSection ? workStateSection.length + 2 : 0) + teamBriefReserveChars({
-        CLAUDE_MEM_TEAMBRAIN_URL: process.env.CLAUDE_MEM_TEAMBRAIN_URL ?? settings.CLAUDE_MEM_TEAMBRAIN_URL,
-        CLAUDE_MEM_MEMORY_INSTRUCTIONS_ENABLED: process.env.CLAUDE_MEM_MEMORY_INSTRUCTIONS_ENABLED ?? settings.CLAUDE_MEM_MEMORY_INSTRUCTIONS_ENABLED,
-      }),
+      reserveChars: (workStateSection ? workStateSection.length + 2 : 0)
+        + (briefingSection ? briefingSection.length + 2 : 0)
+        + teamBriefReserveChars({
+          CLAUDE_MEM_TEAMBRAIN_URL: process.env.CLAUDE_MEM_TEAMBRAIN_URL ?? settings.CLAUDE_MEM_TEAMBRAIN_URL,
+          CLAUDE_MEM_MEMORY_INSTRUCTIONS_ENABLED: process.env.CLAUDE_MEM_MEMORY_INSTRUCTIONS_ENABLED ?? settings.CLAUDE_MEM_MEMORY_INSTRUCTIONS_ENABLED,
+        }),
       timePlaceholders: true,
       includePriorMessage: request.includePriorMessage,
     }, forHuman, { execution: this.contextReader ? 'worker' : 'inline', reader: this.contextReader ?? undefined });
-    return { body: withWorkState(contextResult.text), stats: contextResult.stats, cacheable, ...(contextResult.readKeys ? { readKeys: contextResult.readKeys } : {}) };
+    return { body: withWorkState(withBriefingExtensions(contextResult.text)), stats: contextResult.stats, cacheable, ...(contextResult.readKeys ? { readKeys: contextResult.readKeys } : {}) };
   }
 
   private handleSemanticContext = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
@@ -783,5 +817,78 @@ export class SearchRoutes extends BaseRouteHandler {
   private handleGetTimelineByQuery = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
     const result = await this.searchManager.getTimelineByQuery(this.searchArgsFromRequest(req));
     res.json(result);
+  });
+
+  private resolveKnowledgeGraphProjects(req: Request): string[] {
+    const project = SearchRoutes.firstString(req.query.project);
+    const projects = SearchRoutes.parseProjectsParam(req.query.projects);
+    if (projects.length > 0) return projects;
+    if (project && project.trim()) return [project.trim()];
+    return [];
+  }
+
+  private handleListFeatures = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
+    const db = this.searchManager.getSessionStore().db;
+    const projects = this.resolveKnowledgeGraphProjects(req);
+    const status = SearchRoutes.firstString(req.query.status) || undefined;
+    const limitRaw = SearchRoutes.firstString(req.query.limit);
+    const limit = limitRaw ? parseInt(limitRaw, 10) || 20 : 20;
+    const features = queryKnowledgeGraphFeatures(db, projects, { status, limit });
+    const text = formatFeaturesMcpText(features);
+    if (req.query.format === 'text') {
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.send(text);
+      return;
+    }
+    res.json({ features, count: features.length, text });
+  });
+
+  private handleGetFeatureHistory = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
+    const db = this.searchManager.getSessionStore().db;
+    const featureName = SearchRoutes.firstString(req.query.feature_name) ?? SearchRoutes.firstString(req.query.feature) ?? '';
+    if (!featureName.trim()) {
+      throw new AppError('feature_name is required', 400, 'MISSING_PARAMETER');
+    }
+    const projects = this.resolveKnowledgeGraphProjects(req);
+    const history = queryFeatureHistory(db, featureName, projects);
+    const text = formatFeatureHistoryMcpText(history);
+    if (req.query.format === 'text') {
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.send(text);
+      return;
+    }
+    res.json({ ...history, text });
+  });
+
+  private handleListDecisions = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
+    const db = this.searchManager.getSessionStore().db;
+    const projects = this.resolveKnowledgeGraphProjects(req);
+    const topic = SearchRoutes.firstString(req.query.topic) || undefined;
+    const limitRaw = SearchRoutes.firstString(req.query.limit);
+    const limit = limitRaw ? parseInt(limitRaw, 10) || 20 : 20;
+    const decisions = queryKnowledgeGraphDecisions(db, projects, { topic, limit });
+    const text = formatDecisionsMcpText(decisions);
+    if (req.query.format === 'text') {
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.send(text);
+      return;
+    }
+    res.json({ decisions, count: decisions.length, text });
+  });
+
+  private handleListTodos = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
+    const db = this.searchManager.getSessionStore().db;
+    const projects = this.resolveKnowledgeGraphProjects(req);
+    const status = SearchRoutes.firstString(req.query.status) || 'open';
+    const limitRaw = SearchRoutes.firstString(req.query.limit);
+    const limit = limitRaw ? parseInt(limitRaw, 10) || 20 : 20;
+    const todos = queryKnowledgeGraphTodos(db, projects, { status, limit });
+    const text = formatTodosMcpText(todos);
+    if (req.query.format === 'text') {
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.send(text);
+      return;
+    }
+    res.json({ todos, count: todos.length, text });
   });
 }

@@ -55,8 +55,7 @@ export class DistillManager {
     }
 
     // 5. Call provider to distill observations
-    const provider = await this.providerRegistry.getForTask('distill');
-    const xml = await this.distillObservations(candidates);
+    const { xml, providerName } = await this.distillObservationsWithProvider(candidates);
     const parsed = this.parseDistillOutput(xml);
 
     // 5b. Check if commit is on main before the transaction
@@ -68,8 +67,6 @@ export class DistillManager {
     const newDecisionIds: number[] = [];
     const newTodoIds: number[] = [];
 
-    const providerName = (provider as any).constructor.name;
-
     this.db.exec('BEGIN');
     try {
       const insertResult = this.db.prepare(
@@ -80,17 +77,17 @@ export class DistillManager {
 
       distillId = (insertResult.lastInsertRowid as number) || null;
 
-      if (priorDistill && distillId) {
+      if (distillId) {
         this.db.prepare(
-          'UPDATE distilled_reflections SET superseded_by = ? WHERE id = ?',
-        ).run(distillId, priorDistill.id);
+          'UPDATE distilled_reflections SET superseded_by = ? WHERE feature_id = ? AND id != ? AND superseded_by IS NULL',
+        ).run(distillId, feature.id, distillId);
       }
 
-      // Claim observations
+      // Claim observations (and backfill branch_name if it was null)
       for (const obs of candidates) {
         this.db.prepare(
-          'UPDATE observations SET feature_id = ? WHERE id = ?',
-        ).run(feature.id, obs.id);
+          'UPDATE observations SET feature_id = ?, branch_name = COALESCE(branch_name, ?) WHERE id = ?',
+        ).run(feature.id, input.branch, obs.id);
       }
 
       // Insert decisions
@@ -154,7 +151,10 @@ export class DistillManager {
   }
 
   private parseDistillOutput(xml: string) {
-    const body = (xml.match(/<body>([\s\S]*?)<\/body>/)?.[1] ?? '').trim();
+    let body = (xml.match(/<body>([\s\S]*?)<\/body>/)?.[1] ?? '').trim();
+    if (!body && !xml.includes('<distill')) {
+      body = xml.replace(/<[^>]+>/g, '').trim();
+    }
     const suggestedTitle = (xml.match(/<suggested-title>([\s\S]*?)<\/suggested-title>/)?.[1] ?? '').trim() || undefined;
 
     const decisions: any[] = [];
@@ -194,34 +194,64 @@ export class DistillManager {
     if (!project) return [];
 
     if (since) {
-      return this.db.prepare(
+      const rows = this.db.prepare(
         `SELECT * FROM observations
           WHERE project = ? AND branch_name = ? AND feature_id IS NULL AND created_at > ?
           ORDER BY created_at`,
       ).all(project.name, branch, since) as any[];
+      if (rows.length > 0) return rows;
+      const fallbackRows = this.db.prepare(
+        `SELECT * FROM observations
+          WHERE project = ? AND branch_name IS NULL AND feature_id IS NULL AND created_at > ?
+          ORDER BY created_at DESC LIMIT 20`,
+      ).all(project.name, since) as any[];
+      return fallbackRows.reverse();
     }
-    return this.db.prepare(
+    const rows = this.db.prepare(
       `SELECT * FROM observations
         WHERE project = ? AND branch_name = ? AND feature_id IS NULL
         ORDER BY created_at`,
     ).all(project.name, branch) as any[];
+    if (rows.length > 0) return rows;
+    const fallbackRows = this.db.prepare(
+      `SELECT * FROM observations
+        WHERE project = ? AND branch_name IS NULL AND feature_id IS NULL
+        ORDER BY created_at DESC LIMIT 20`,
+    ).all(project.name) as any[];
+    return fallbackRows.reverse();
   }
 
   private async allObservationsForBranch(projectId: string, branch: string): Promise<any[]> {
     const project = this.db.prepare('SELECT id, name FROM projects WHERE id = ?').get(projectId) as any;
     if (!project) return [];
-    return this.db.prepare(
+    const rows = this.db.prepare(
       'SELECT * FROM observations WHERE project = ? AND branch_name = ? ORDER BY created_at',
     ).all(project.name, branch) as any[];
+    if (rows.length > 0) return rows;
+    const fallbackRows = this.db.prepare(
+      'SELECT * FROM observations WHERE project = ? AND branch_name IS NULL ORDER BY created_at DESC LIMIT 20',
+    ).all(project.name) as any[];
+    return fallbackRows.reverse();
+  }
+
+  private async distillObservationsWithProvider(observations: any[]): Promise<{ xml: string; providerName: string }> {
+    const prompt = this.buildDistillPrompt(observations);
+    let usedProviderName = 'unknown';
+    if (typeof this.providerRegistry.executeWithFallback === 'function') {
+      const xml = await this.providerRegistry.executeWithFallback('distill', async p => {
+        usedProviderName = p.name || (p as any).constructor?.name || 'unknown';
+        return await p.extract({ prompt });
+      });
+      return { xml, providerName: usedProviderName };
+    }
+    const provider = await this.providerRegistry.getForTask('distill');
+    usedProviderName = provider.name || (provider as any).constructor?.name || 'unknown';
+    const xml = await provider.extract({ prompt });
+    return { xml, providerName: usedProviderName };
   }
 
   private async distillObservations(observations: any[]): Promise<string> {
-    const prompt = this.buildDistillPrompt(observations);
-    if (typeof this.providerRegistry.executeWithFallback === 'function') {
-      return await this.providerRegistry.executeWithFallback('distill', p => p.extract({ prompt }));
-    }
-    const provider = await this.providerRegistry.getForTask('distill');
-    return await provider.extract({ prompt });
+    return (await this.distillObservationsWithProvider(observations)).xml;
   }
 
   private async extractDecisions(body: string): Promise<any[]> {
@@ -253,9 +283,24 @@ export class DistillManager {
   }
 
   private buildDistillPrompt(observations: any[]): string {
-    return observations.map(o => {
-      const content = o.narrative || o.subtitle || '(no content)';
+    const items = observations.map(o => {
+      const content = o.narrative || o.subtitle || o.text || '(no content)';
       return `- ${o.type}: ${o.title}\n  ${content}`;
     }).join('\n\n');
+
+    return `Distill the following coding observations into a concise architectural reflection in XML format:
+<distill>
+  <suggested-title>Short feature title</suggested-title>
+  <body>Concise markdown summary of what was built, fixed, and learned.</body>
+  <decisions>
+    <decision topic="area" choice="selected approach" reason="why this was chosen"/>
+  </decisions>
+  <todos>
+    <todo>Remaining actionable follow-up item</todo>
+  </todos>
+</distill>
+
+Observations:
+${items}`;
   }
 }

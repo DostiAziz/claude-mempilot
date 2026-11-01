@@ -60,6 +60,7 @@ export class OllamaProvider implements LlmProvider {
         model: targetModel,
         prompt: input.prompt,
         stream: false,
+        think: false,
       }),
     });
     const json = (await response.json()) as any;

@@ -18,7 +18,7 @@ import {
   LatestPromptResult
 } from '../../types/database.js';
 import type { ObservationSearchResult, SessionSummarySearchResult } from './types.js';
-import { computeObservationContentHash, hasStorableTitle } from './observations/store.js';
+import { computeObservationContentHash, getCurrentGitBranch, hasStorableTitle } from './observations/store.js';
 import { replaceObservationFileIndex } from './observations/files.js';
 import { seedReinforcement, reinforceObservation } from '../reinforcement/persist.js';
 import {
@@ -4113,19 +4113,27 @@ export class SessionStore {
     const dedup = this.dedupConfig();
     // Context is platform-scoped, so Tier-0 must be too: a Codex observation
     // merged into a Claude row would vanish from Codex context.
-    const sessionPlatform = normalizePlatformSource(
-      (this.db.prepare('SELECT platform_source FROM sdk_sessions WHERE memory_session_id = ? LIMIT 1')
-        .get(memorySessionId) as { platform_source: string | null } | undefined)?.platform_source
-    );
+    const sessionRow = this.db.prepare(
+      'SELECT platform_source, cwd FROM sdk_sessions WHERE memory_session_id = ? OR content_session_id = ? LIMIT 1'
+    ).get(memorySessionId, memorySessionId) as { platform_source: string | null; cwd: string | null } | undefined;
+    const sessionPlatform = normalizePlatformSource(sessionRow?.platform_source);
+
+    let projectRootPath: string | null = null;
+    try {
+      const projRow = this.db.prepare('SELECT root_path FROM projects WHERE name = ? LIMIT 1')
+        .get(project) as { root_path: string | null } | undefined;
+      projectRootPath = projRow?.root_path ?? null;
+    } catch {
+      projectRootPath = null;
+    }
 
     let branchName: string | null = null;
-    try {
-      const raw = execSync(`git -C "${project}" rev-parse --abbrev-ref HEAD`, {
-        encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim();
-      branchName = raw === 'HEAD' ? null : raw;
-    } catch {
-      branchName = null;
+    const gitDirCandidates = [sessionRow?.cwd, projectRootPath, project].filter(
+      (dir): dir is string => typeof dir === 'string' && dir.trim().length > 0
+    );
+    for (const candidateDir of gitDirCandidates) {
+      branchName = getCurrentGitBranch(candidateDir);
+      if (branchName !== null) break;
     }
 
     const storeTx = this.db.transaction(() => {
