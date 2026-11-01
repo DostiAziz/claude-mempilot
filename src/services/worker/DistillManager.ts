@@ -217,20 +217,38 @@ export class DistillManager {
 
   private async distillObservations(observations: any[]): Promise<string> {
     const prompt = this.buildDistillPrompt(observations);
-    return await this.providerRegistry.executeWithFallback('distill', p => p.extract({ prompt }));
+    if (typeof this.providerRegistry.executeWithFallback === 'function') {
+      return await this.providerRegistry.executeWithFallback('distill', p => p.extract({ prompt }));
+    }
+    const provider = await this.providerRegistry.getForTask('distill');
+    return await provider.extract({ prompt });
   }
 
   private async extractDecisions(body: string): Promise<any[]> {
-    return await this.providerRegistry.executeWithFallback('decision-extraction', p => p.extractStructured({
+    if (typeof this.providerRegistry.executeWithFallback === 'function') {
+      return await this.providerRegistry.executeWithFallback('decision-extraction', p => p.extractStructured({
+        prompt: `Extract architectural decisions from: ${body}`,
+        schema: { decisions: { type: 'array' } },
+      }));
+    }
+    const provider = await this.providerRegistry.getForTask('decision-extraction');
+    return await (provider as any).extractStructured({
       prompt: `Extract architectural decisions from: ${body}`,
       schema: { decisions: { type: 'array' } },
-    }));
+    });
   }
 
   private async extractTodos(body: string): Promise<string[]> {
-    const response = await this.providerRegistry.executeWithFallback('todo-extraction', p => p.extract({
+    if (typeof this.providerRegistry.executeWithFallback === 'function') {
+      const response = await this.providerRegistry.executeWithFallback('todo-extraction', p => p.extract({
+        prompt: `Extract actionable items from: ${body}`,
+      }));
+      return response.split('\n').filter(line => line.trim());
+    }
+    const provider = await this.providerRegistry.getForTask('todo-extraction');
+    const response = await provider.extract({
       prompt: `Extract actionable items from: ${body}`,
-    }));
+    });
     return response.split('\n').filter(line => line.trim());
   }
 

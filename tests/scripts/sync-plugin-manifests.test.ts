@@ -49,7 +49,7 @@ describe('sync-plugin-manifests', () => {
       // leave each one exactly as it was.
       const otherPluginVersions = (marketplacePlugins: any[]) => Object.fromEntries(
         marketplacePlugins
-          .filter((plugin) => plugin.name !== 'claude-mem')
+          .filter((plugin) => plugin.name !== 'claude-mem' && plugin.name !== 'mempilot')
           .map((plugin) => [plugin.name, plugin.version]),
       );
       const otherVersionsBefore = otherPluginVersions(
@@ -71,7 +71,7 @@ describe('sync-plugin-manifests', () => {
       const marketplace = JSON.parse(
         readFileSync(join(fixtureRoot, marketplacePath), 'utf8'),
       );
-      const claudeMem = marketplace.plugins.find((plugin: any) => plugin.name === 'claude-mem');
+      const claudeMem = marketplace.plugins.find((plugin: any) => plugin.name === 'claude-mem' || plugin.name === 'mempilot');
       expect(claudeMem?.version).toBe('9.9.9');
       expect(otherPluginVersions(marketplace.plugins)).toEqual(otherVersionsBefore);
     } finally {
