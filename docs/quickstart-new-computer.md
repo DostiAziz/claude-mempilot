@@ -61,11 +61,11 @@ Mempilot supports multi-agent setups simultaneously. You can configure any agent
 
 Antigravity uses Protobuf protojson for its lifecycle hooks and local MCP server configurations:
 
-* **Automated Setup**:
+* **Automated Setup** (accepts `antigravity`, `agy`, or `antigravity-cli`):
   ```bash
   mempilot antigravity-cli install
   # or:
-  mempilot install --ide antigravity
+  mempilot install --ide agy
   ```
 
 * **What it configures**:
@@ -83,8 +83,10 @@ Antigravity uses Protobuf protojson for its lifecycle hooks and local MCP server
 
 ### 2. Claude Code
 
-* **Automated Setup**:
+* **Automated Setup** (accepts `claude-code`, `claudecode-cli`, `claude`, or `claudecode`):
   ```bash
+  mempilot install --ide claudecode-cli
+  # or:
   mempilot install --ide claude-code
   ```
 
@@ -103,9 +105,11 @@ Antigravity uses Protobuf protojson for its lifecycle hooks and local MCP server
 
 ### 3. OpenAI Codex CLI
 
-* **Automated Setup**:
+* **Automated Setup** (accepts `codex-cli` or `codex`):
   ```bash
   mempilot install --ide codex-cli
+  # or:
+  mempilot install --ide codex
   ```
 
 * **What it configures**:
@@ -116,8 +120,10 @@ Antigravity uses Protobuf protojson for its lifecycle hooks and local MCP server
 
 ### 4. Cursor & Windsurf
 
-* **Cursor**:
+* **Cursor** (accepts `cursor` or `cursor-cli`):
   ```bash
+  mempilot install --ide cursor-cli
+  # or:
   mempilot install --ide cursor
   ```
   Configures Cursor hooks and stdio MCP server in `~/.cursor/mcp.json`, linking context via `.cursorrules`.
@@ -127,6 +133,18 @@ Antigravity uses Protobuf protojson for its lifecycle hooks and local MCP server
   mempilot install --ide windsurf
   ```
   Configures hooks in `~/.codeium/windsurf/` and rule integration in `.windsurf/rules/`.
+
+---
+
+### 5. GitHub Copilot CLI
+
+* **Automated Setup** (accepts `copilot-cli` or `copilot`):
+  ```bash
+  mempilot install --ide copilot-cli
+  # or:
+  mempilot install --ide copilot
+  ```
+  Configures Copilot CLI MCP server in `~/.github/copilot/mcp.json` and context in `.github/copilot-instructions.md`.
 
 ---
 
