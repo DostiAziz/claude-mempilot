@@ -1,21 +1,29 @@
-# MemPilot — fork of claude-mem
+# MemPilot — Universal Cross-Session Memory for Coding Agents
 
-This is a soft fork of [`thedotmack/claude-mem`](https://github.com/thedotmack/claude-mem)
-pinned at upstream tag `v13.4.0`. It adds:
+This repository is **Mempilot**, a persistent, cross-session memory engine for **Google Antigravity (`agy`)**, **Claude Code**, **OpenAI Codex**, **Cursor**, **Windsurf**, and other agentic coding platforms.
 
-1. `GeminiCliProvider` — uses the local `gemini` CLI binary instead of the Gemini HTTP API.
-2. Per-feature distill on git post-commit — consolidates per-task observations into one per-feature reflection.
-3. `features` / `todos` / `decisions` first-class tables.
-4. Four new MCP tools: `list_decisions`, `get_feature_history`, `list_open_todos`, `list_features`.
-5. Extended briefing index with sections for the new entity types.
+### 🚀 Quick Start on a New Computer / System
 
-**Design and plan:**
-- [Design spec](docs/specs/2026-05-30-mempilot-claude-mem-fork-design.md) — architecture, schema, distill algorithm
-- [Implementation plan](docs/plans/2026-05-30-mempilot-claude-mem-fork.md) — 10 phases, TDD, step-by-step
-- [Competitive analysis](docs/specs/2026-05-28-mempilot-competitive-analysis.md) — why this fork exists
+```bash
+# 1. Clone repository
+git clone https://github.com/your-username/claude-mempilot.git mempilot
+cd mempilot
 
-**Upstream remote:** `git remote add upstream https://github.com/thedotmack/claude-mem.git`
-**Working branch:** `mempilot-main` (branched from upstream tag `v13.4.0`)
+# 2. Run automated setup wizard
+npm run setup
+```
+
+For complete instructions across agents, offline Ollama models, and scenario-based fallback routing, see the **[New Computer Quickstart Guide](docs/quickstart-new-computer.md)**.
+
+---
+
+### Key Capabilities in Mempilot:
+
+1. **Multi-Agent Lifecycle Engine**: Native support for Google Antigravity CLI (`agy`), Claude Code, OpenAI Codex, Cursor, Windsurf, OpenCode, Hermes, and stdio MCP clients.
+2. **Dynamic Ollama Discovery**: Automatically discovers running local models on `localhost:11434` for 100% offline, free, private memory distillation.
+3. **Scenario-Based Fallback Routing**: 4 logical task tiers (`live-observation`, `session-summary`, `semantic-search`, `enrichment-format`) with configurable primary/fallback providers and timeouts.
+4. **First-Class Memory Entities**: Persistent `features`, `todos`, and `decisions` relational tables with dedicated MCP tools (`list_decisions`, `get_feature_history`, `list_open_todos`, `list_features`).
+5. **Interactive Web Dashboard**: Live web viewer and configuration center at `http://localhost:37701/viewer`.
 
 ---
 

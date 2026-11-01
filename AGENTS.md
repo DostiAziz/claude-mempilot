@@ -92,7 +92,18 @@ The 17 granular memory tasks are categorized into **4 Logical Scenarios** config
 
 ---
 
-## 6. Build, Test, and Verification
+## 6. Fresh System Setup & Quickstart
+
+For full onboarding and multi-agent setup on a new computer, refer to:
+* **[New Computer Quickstart Guide](docs/quickstart-new-computer.md)**
+* Quick setup command:
+  ```bash
+  npm run setup
+  ```
+
+---
+
+## 7. Build, Test, and Verification
 
 ```bash
 # Build all plugin bundles and React Viewer
