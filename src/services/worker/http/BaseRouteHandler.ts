@@ -7,12 +7,12 @@ import { normalizePlatformSource } from '../../../shared/platform-source.js';
 export abstract class BaseRouteHandler {
   protected wrapHandler(
     handler: (req: Request, res: Response) => void | Promise<void>
-  ): (req: Request, res: Response) => void {
-    return (req: Request, res: Response): void => {
+  ): (req: Request, res: Response) => void | Promise<void> {
+    return (req: Request, res: Response): void | Promise<void> => {
       try {
         const result = handler(req, res);
         if (result instanceof Promise) {
-          result.catch(error => this.handleError(res, error as Error));
+          return result.catch(error => this.handleError(res, error as Error));
         }
       } catch (error) {
         const normalizedError = error instanceof Error ? error : new Error(String(error));

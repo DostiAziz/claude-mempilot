@@ -181,6 +181,8 @@ export class SettingsRoutes extends BaseRouteHandler {
     app.get('/api/settings', this.handleGetSettings.bind(this));
     app.post('/api/settings', validateBody(updateSettingsSchema), this.handleUpdateSettings.bind(this));
     app.get('/api/settings/dependency-health', this.handleGetDependencyHealth.bind(this));
+    app.get('/api/settings/ollama/models', this.handleGetOllamaModels.bind(this));
+    app.get('/api/ollama/models', this.handleGetOllamaModels.bind(this));
 
     app.get('/api/mcp/status', this.handleGetMcpStatus.bind(this));
     app.post('/api/mcp/toggle', validateBody(toggleMcpSchema), this.handleToggleMcp.bind(this));
@@ -195,6 +197,57 @@ export class SettingsRoutes extends BaseRouteHandler {
 
   private handleGetDependencyHealth = this.wrapHandler((_req: Request, res: Response): void => {
     res.json(snapshotDependencyHealth());
+  });
+
+  private handleGetOllamaModels = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
+    const settingsPath = paths.settings();
+    const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
+    const endpointParam = typeof req.query.endpoint === 'string' ? req.query.endpoint.trim() : '';
+    const rawEndpoint = endpointParam || (settings.OLLAMA_ENDPOINT as string | undefined)?.trim() || 'http://localhost:11434';
+    const endpoint = rawEndpoint.replace(/\/+$/, '');
+
+    try {
+      const response = await fetch(`${endpoint}/api/tags`, {
+        signal: AbortSignal.timeout(3000),
+      });
+
+      if (!response.ok) {
+        res.json({
+          available: false,
+          endpoint,
+          error: `Ollama returned HTTP ${response.status}`,
+          models: [],
+        });
+        return;
+      }
+
+      const data = (await response.json()) as { models?: Array<{ name: string; size?: number; details?: any }> };
+      const rawModels = Array.isArray(data.models) ? data.models : [];
+      const models = rawModels.map((m) => {
+        const sizeGb = m.size ? (m.size / (1024 * 1024 * 1024)).toFixed(1) + ' GB' : undefined;
+        return {
+          name: m.name,
+          size: m.size,
+          sizeFormatted: sizeGb,
+          family: m.details?.family || undefined,
+          parameterSize: m.details?.parameter_size || undefined,
+          quantization: m.details?.quantization_level || undefined,
+        };
+      });
+
+      res.json({
+        available: true,
+        endpoint,
+        models,
+      });
+    } catch (err: any) {
+      res.json({
+        available: false,
+        endpoint,
+        error: `Could not connect to Ollama at ${endpoint}: ${err?.message || 'Connection failed'}`,
+        models: [],
+      });
+    }
   });
 
   private handleUpdateSettings = this.wrapHandler((req: Request, res: Response): void => {

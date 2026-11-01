@@ -241,6 +241,47 @@ export function ContextSettingsModal({
     setFormState(prev => ({ ...prev, ...updates }));
   }, []);
 
+  const [detectedOllamaModels, setDetectedOllamaModels] = useState<Array<{ name: string; sizeFormatted?: string; parameterSize?: string }>>([]);
+  const [isDetectingOllama, setIsDetectingOllama] = useState<boolean>(false);
+  const [ollamaDetectError, setOllamaDetectError] = useState<string | null>(null);
+  const [isCustomOllamaModel, setIsCustomOllamaModel] = useState<boolean>(false);
+
+  const fetchOllamaModels = useCallback(async (endpointUrl?: string) => {
+    const ep = endpointUrl || formState.OLLAMA_ENDPOINT || 'http://localhost:11434';
+    setIsDetectingOllama(true);
+    setOllamaDetectError(null);
+    try {
+      const res = await fetch(`/api/settings/ollama/models?endpoint=${encodeURIComponent(ep)}`);
+      const data = await res.json() as { available: boolean; models?: Array<{ name: string; sizeFormatted?: string; parameterSize?: string }>; error?: string };
+      if (data.available && Array.isArray(data.models)) {
+        setDetectedOllamaModels(data.models);
+        if (data.models.length > 0) {
+          const currentModel = formState.OLLAMA_MODEL?.trim();
+          const hasCurrent = currentModel && data.models.some(m => m.name === currentModel);
+          if (!hasCurrent && !isCustomOllamaModel) {
+            if (!currentModel || currentModel === 'gpt-oss:20b') {
+              updateSetting('OLLAMA_MODEL', data.models[0].name);
+            } else {
+              setIsCustomOllamaModel(true);
+            }
+          }
+        }
+      } else {
+        setOllamaDetectError(data.error || 'Ollama is unreachable');
+      }
+    } catch (err: any) {
+      setOllamaDetectError(err?.message || 'Failed to detect Ollama models');
+    } finally {
+      setIsDetectingOllama(false);
+    }
+  }, [formState.OLLAMA_ENDPOINT, formState.OLLAMA_MODEL, isCustomOllamaModel, updateSetting]);
+
+  useEffect(() => {
+    if (isOpen && (formState.OLLAMA_ENDPOINT ?? '') !== '') {
+      fetchOllamaModels(formState.OLLAMA_ENDPOINT);
+    }
+  }, [isOpen, formState.OLLAMA_ENDPOINT]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSave = useCallback(() => {
     onSave(formState);
   }, [formState, onSave]);
@@ -1180,14 +1221,88 @@ export function ContextSettingsModal({
                       </FormField>
                       <FormField
                         label="Model"
-                        tooltip="Ollama model name to use for distillation"
+                        tooltip="Installed Ollama model for on-device distillation"
                       >
-                        <input
-                          type="text"
-                          value={formState.OLLAMA_MODEL ?? 'gpt-oss:20b'}
-                          onChange={(e) => updateSetting('OLLAMA_MODEL', e.target.value)}
-                          placeholder="gpt-oss:20b"
-                        />
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          {!isCustomOllamaModel && detectedOllamaModels.length > 0 ? (
+                            <select
+                              value={formState.OLLAMA_MODEL || (detectedOllamaModels[0]?.name ?? '')}
+                              onChange={(e) => {
+                                if (e.target.value === '__custom__') {
+                                  setIsCustomOllamaModel(true);
+                                } else {
+                                  updateSetting('OLLAMA_MODEL', e.target.value);
+                                }
+                              }}
+                              style={{ flex: 1 }}
+                            >
+                              {detectedOllamaModels.map((m) => (
+                                <option key={m.name} value={m.name}>
+                                  {m.name} {m.sizeFormatted ? `(${m.sizeFormatted})` : ''}
+                                </option>
+                              ))}
+                              <option value="__custom__">Custom / Type model manually...</option>
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={formState.OLLAMA_MODEL ?? ''}
+                              onChange={(e) => updateSetting('OLLAMA_MODEL', e.target.value)}
+                              placeholder="e.g. gemma4:latest, llama3.2, mistral"
+                              style={{ flex: 1 }}
+                            />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => fetchOllamaModels(formState.OLLAMA_ENDPOINT)}
+                            disabled={isDetectingOllama}
+                            title="Auto-detect downloaded models on local Ollama"
+                            style={{
+                              padding: '6px 12px',
+                              fontSize: '0.82em',
+                              borderRadius: '6px',
+                              border: '1px solid var(--color-border, #e1e4e8)',
+                              background: 'var(--color-bg-secondary, #f6f8fa)',
+                              color: 'var(--color-text-primary, #24292e)',
+                              cursor: isDetectingOllama ? 'wait' : 'pointer',
+                              whiteSpace: 'nowrap',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            {isDetectingOllama ? 'Scanning...' : 'Detect 🔄'}
+                          </button>
+                          {isCustomOllamaModel && detectedOllamaModels.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setIsCustomOllamaModel(false)}
+                              title="Switch back to detected models dropdown"
+                              style={{
+                                padding: '6px 10px',
+                                fontSize: '0.82em',
+                                borderRadius: '6px',
+                                border: '1px solid var(--color-border, #e1e4e8)',
+                                background: 'var(--color-bg-secondary, #f6f8fa)',
+                                color: 'var(--color-text-primary, #24292e)',
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap'
+                              }}
+                            >
+                              List
+                            </button>
+                          )}
+                        </div>
+                        {ollamaDetectError && (
+                          <p style={{ fontSize: '0.8em', color: '#cf222e', margin: '4px 0 0' }}>
+                            ⚠️ {ollamaDetectError}
+                          </p>
+                        )}
+                        {!isCustomOllamaModel && detectedOllamaModels.length > 0 && (
+                          <p style={{ fontSize: '0.8em', color: '#1a7f37', margin: '4px 0 0' }}>
+                            ✓ Detected {detectedOllamaModels.length} installed Ollama model{detectedOllamaModels.length > 1 ? 's' : ''} on this machine
+                          </p>
+                        )}
                       </FormField>
                     </>
                   )}

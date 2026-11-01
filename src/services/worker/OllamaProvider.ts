@@ -28,14 +28,36 @@ export class OllamaProvider implements LlmProvider {
     }
   }
 
+  async resolveModel(): Promise<string> {
+    if (this.model && this.model.trim()) {
+      return this.model.trim();
+    }
+    try {
+      const response = await fetch(`${this.endpoint}/api/tags`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (response.ok) {
+        const json = (await response.json()) as any;
+        if (Array.isArray(json?.models) && json.models.length > 0) {
+          this.model = json.models[0].name;
+          return this.model;
+        }
+      }
+    } catch {
+      // Fallback if discovery fails
+    }
+    return this.model || 'gemma4:latest';
+  }
+
   async extract(input: { prompt: string }): Promise<string> {
+    const targetModel = await this.resolveModel();
     const response = await fetch(`${this.endpoint}/api/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: this.model,
+        model: targetModel,
         prompt: input.prompt,
         stream: false,
       }),
