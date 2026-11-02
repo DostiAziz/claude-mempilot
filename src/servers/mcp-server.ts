@@ -1265,8 +1265,16 @@ Optional Dumb search: \`dumb_search({query, project})\`. Doesn’t reason about 
       if (typeof args?.symbol_name !== 'string' || !args.symbol_name.trim()) {
         throw new Error('Missing required argument: symbol_name');
       }
+      const checkout = currentCheckout();
+      const project = typeof args?.project === 'string' && args.project.trim()
+        ? args.project.trim()
+        : checkout.primary;
       return await callWorker('/api/knowledge-graph/code-impact', {
-        query: { ...withCheckoutProjects(args ?? {}, currentCheckout()), format: 'text' },
+        query: {
+          project,
+          ...withCheckoutProjects({ ...args, project }, checkout),
+          format: 'text',
+        },
         text: true,
       });
     }

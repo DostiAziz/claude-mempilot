@@ -267,13 +267,48 @@ export async function ingestObservation(payload: ObservationPayload, handoff: In
   const store = dbManager.getSessionStore();
 
   // Stage modified files in DirtyFilesBuffer
-  const fileWriteTools = new Set(['Edit', 'Write', 'NotebookEdit', 'edit_file', 'write_file']);
-  if (fileWriteTools.has(payload.toolName) && payload.toolInput && typeof payload.toolInput === 'object') {
-    const input = payload.toolInput as { file_path?: string; Path?: string; path?: string; notebook_path?: string };
-    const filePath = input.file_path || input.Path || input.path || input.notebook_path;
-    if (filePath && cwd) {
-      const buffer = getDirtyFilesBuffer(store.db);
-      buffer?.markDirty(filePath, project, cwd);
+  const fileWriteTools = new Set(['Edit', 'Write', 'NotebookEdit', 'edit_file', 'write_file', 'apply_patch']);
+  if (fileWriteTools.has(payload.toolName)) {
+    let input: any = payload.toolInput;
+    if (typeof input === 'string') {
+      try {
+        input = JSON.parse(input);
+      } catch {
+        if (payload.toolName === 'apply_patch') {
+          input = { patch: input };
+        }
+      }
+    }
+
+    const targetPaths: string[] = [];
+    if (input && typeof input === 'object') {
+      const single = input.file_path || input.filePath || input.Path || input.path || input.notebook_path || input.notebookPath;
+      if (typeof single === 'string') targetPaths.push(single);
+
+      if (Array.isArray(input.edits)) {
+        for (const edit of input.edits) {
+          if (typeof edit === 'object' && edit) {
+            const editPath = edit.file_path || edit.filePath || edit.path;
+            if (typeof editPath === 'string') targetPaths.push(editPath);
+          }
+        }
+      }
+
+      const patchText = input.patch || input.patchText || input.command;
+      if (typeof patchText === 'string') {
+        for (const line of patchText.split(/\r?\n/)) {
+          const m = line.match(/^\*\*\*\s+(?:Update|Add|Delete)\s+File:\s+(.+)$/) || line.match(/^\+\+\+\s+b\/(.+)$/);
+          if (m && m[1] && m[1] !== '/dev/null') targetPaths.push(m[1].trim());
+        }
+      }
+    }
+
+    const effectiveRoot = cwd || process.cwd();
+    const buffer = getDirtyFilesBuffer(store.db);
+    for (const filePath of targetPaths) {
+      if (filePath && !filePath.includes('session-memory')) {
+        buffer?.markDirty(filePath, project, effectiveRoot);
+      }
     }
   }
 
@@ -474,7 +509,11 @@ export async function ingestSummarize(
   // Flush any staged dirty files into the code graph on turn completion
   const dirtyBuffer = getDirtyFilesBuffer(store.db);
   if (dirtyBuffer) {
-    await dirtyBuffer.flushAll();
+    try {
+      await dirtyBuffer.flushAll();
+    } catch (err) {
+      logger.warn('CODEGRAPH', 'Failed to flush dirty files during summarize', undefined, err as Error);
+    }
   }
 
   // An excluded checkout is never summarized, even one excluded after its
@@ -634,7 +673,11 @@ export async function ingestSessionEnd(
   // Flush any staged dirty files into the code graph on turn completion
   const dirtyBuffer = getDirtyFilesBuffer(store.db);
   if (dirtyBuffer) {
-    await dirtyBuffer.flushAll();
+    try {
+      await dirtyBuffer.flushAll();
+    } catch (err) {
+      logger.warn('CODEGRAPH', 'Failed to flush dirty files during summarize', undefined, err as Error);
+    }
   }
 
   await deps.sessionManager.requestSessionWrapup(sessionDbId);

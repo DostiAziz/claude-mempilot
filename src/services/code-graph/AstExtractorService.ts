@@ -40,9 +40,13 @@ export class AstExtractorService {
     const hasSyntaxErrors =
       isCodeFile &&
       parsed.symbols.length === 0 &&
-      content.trim().length > 120 &&
+      parsed.imports.length === 0 &&
+      content.trim().length > 300 &&
       !content.trim().startsWith('//') &&
-      !content.trim().startsWith('/*');
+      !content.trim().startsWith('/*') &&
+      !content.trim().startsWith('#') &&
+      !content.includes('export') &&
+      !content.includes('import');
 
     if (hasSyntaxErrors) {
       return {
@@ -60,7 +64,7 @@ export class AstExtractorService {
       };
     }
 
-    // 2. Flatten and map symbols
+    // 2. Flatten and map symbols (Converting 0-indexed Tree-Sitter to 1-indexed CodeLocation)
     const symbols: CodeSymbol[] = [];
     const now = Date.now();
 
@@ -73,8 +77,8 @@ export class AstExtractorService {
         filePath,
         symbolName,
         symbolKind: mappedKind,
-        startLine: sym.lineStart,
-        endLine: sym.lineEnd,
+        startLine: sym.lineStart + 1, // Convert 0-indexed to 1-indexed
+        endLine: sym.lineEnd + 1,     // Convert 0-indexed to 1-indexed
         signature: sym.signature || null,
         docstring: sym.jsdoc || null,
         contentHash,
@@ -92,7 +96,7 @@ export class AstExtractorService {
       flattenSymbol(topSymbol);
     }
 
-    // 3. Extract import edges
+    // 3. Extract import and re-export edges
     const edges: CodeEdge[] = [];
     const importedSymbolMap = new Map<string, string>(); // symbol -> targetFile
 
@@ -117,18 +121,27 @@ export class AstExtractorService {
       }
     }
 
-    // 4. Extract function/method call references
+    // 4. Extract function/method call references via single-pass tokenization
     const lines = content.split(/\r?\n/);
+    const CALL_PATTERN = /(?<![a-zA-Z0-9_$])([a-zA-Z0-9_$]+)\s*\(/g;
+
     for (const sym of symbols) {
       if (sym.symbolKind === 'function' || sym.symbolKind === 'method') {
+        // Correct 1-indexed slice: [startLine - 1, endLine)
         const bodyLines = lines.slice(sym.startLine - 1, sym.endLine).join('\n');
         
-        // Scan for calls to imported symbols
+        // Single-pass extraction of all invoked identifier names in the body
+        const invokedNames = new Set<string>();
+        let match: RegExpExecArray | null;
+        CALL_PATTERN.lastIndex = 0;
+        while ((match = CALL_PATTERN.exec(bodyLines)) !== null) {
+          invokedNames.add(match[1]);
+        }
+
+        // Scan calls to imported symbols
         for (const [importedSym, targetFile] of importedSymbolMap.entries()) {
           if (importedSym === '*') continue;
-          // Look for direct call pattern: importedSym(...)
-          const callRegex = new RegExp(`\\b${importedSym}\\s*\\(`, 'g');
-          if (callRegex.test(bodyLines)) {
+          if (invokedNames.has(importedSym)) {
             edges.push({
               projectId,
               sourceFile: filePath,
@@ -141,12 +154,11 @@ export class AstExtractorService {
           }
         }
 
-        // Scan for calls to other sibling symbols in the same file
+        // Scan calls to sibling symbols in the same file
         for (const sibling of symbols) {
           if (sibling.symbolName === sym.symbolName) continue;
           const leafName = sibling.symbolName.split('.').pop()!;
-          const callRegex = new RegExp(`\\b${leafName}\\s*\\(`, 'g');
-          if (callRegex.test(bodyLines)) {
+          if (invokedNames.has(leafName)) {
             edges.push({
               projectId,
               sourceFile: filePath,

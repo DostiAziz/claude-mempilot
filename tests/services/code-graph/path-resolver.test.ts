@@ -26,6 +26,30 @@ describe('PathResolver', () => {
       expect(res.specifier).toBe('node:fs');
       expect(res.symbols).toEqual(['readFileSync', 'existsSync']);
     });
+
+    it('extracts multi-line and type-only TypeScript imports', () => {
+      const multiLine = `
+import {
+  type SessionStore,
+  User as UserModel
+} from './SessionStore.js';
+`;
+      const res = extractImportedSymbols(multiLine);
+      expect(res.specifier).toBe('./SessionStore.js');
+      expect(res.symbols).toEqual(['SessionStore', 'User']);
+
+      const typeOnly = "import type { AppError } from '../errors.js';";
+      const resType = extractImportedSymbols(typeOnly);
+      expect(resType.specifier).toBe('../errors.js');
+      expect(resType.symbols).toEqual(['AppError']);
+    });
+
+    it('extracts re-exports', () => {
+      const reExport = "export { DatabaseManager, SessionStore } from './db.js';";
+      const res = extractImportedSymbols(reExport);
+      expect(res.specifier).toBe('./db.js');
+      expect(res.symbols).toEqual(['DatabaseManager', 'SessionStore']);
+    });
   });
 
   describe('resolveImportPath', () => {
@@ -39,6 +63,15 @@ describe('PathResolver', () => {
         .toBe('src/services/code-graph/PathResolver.js');
       expect(resolveImportPath('src/services/code-graph/AstExtractor.ts', '../sqlite/SessionStore.js'))
         .toBe('src/services/sqlite/SessionStore.js');
+    });
+
+    it('handles Python multi-dot relative imports', () => {
+      expect(resolveImportPath('app/services/auth.py', '...utils.helper'))
+        .toBe('utils/helper');
+      expect(resolveImportPath('app/services/auth.py', '.helper'))
+        .toBe('app/services/helper');
+      expect(resolveImportPath('app/services/auth.py', '..models.user'))
+        .toBe('app/models/user');
     });
   });
 });

@@ -897,17 +897,25 @@ export class SearchRoutes extends BaseRouteHandler {
 
   private handleCodeImpact = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
     const db = this.searchManager.getSessionStore().db;
-    const symbolName = SearchRoutes.firstString(req.query.symbol_name) ?? SearchRoutes.firstString(req.query.symbol) ?? '';
-    if (!symbolName.trim()) {
+    const rawSymbol = SearchRoutes.firstString(req.query.symbol_name) ?? SearchRoutes.firstString(req.query.symbol) ?? '';
+    const symbolName = rawSymbol.trim();
+    if (!symbolName) {
       throw new AppError('symbol_name is required', 400, 'MISSING_PARAMETER');
     }
     const filePath = SearchRoutes.firstString(req.query.file_path) || undefined;
+    const depthRaw = SearchRoutes.firstString(req.query.depth);
+    const depth = Math.min(Math.max(parseInt(depthRaw || '2', 10) || 2, 1), 3);
+
     const projects = this.resolveKnowledgeGraphProjects(req);
-    const projectId = projects[0] || 'default';
+    let projectId = projects[0];
+    if (!projectId) {
+      const recent = db.prepare('SELECT project FROM sdk_sessions ORDER BY id DESC LIMIT 1').get() as { project: string } | undefined;
+      projectId = recent?.project || 'default';
+    }
 
     const buffer = getDirtyFilesBuffer(db);
     const report = buffer
-      ? buffer.getCodeImpactReport(projectId, symbolName, filePath)
+      ? buffer.getCodeImpactReport(projectId, symbolName, filePath, depth)
       : { symbolName, directCallers: [], outwardDependencies: [], linkedDecisions: [] };
 
     const text = formatCodeImpactMcpText(report);

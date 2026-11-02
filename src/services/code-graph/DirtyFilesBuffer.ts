@@ -11,12 +11,14 @@ export interface DirtyFileEntry {
   projectRoot: string;
   lastEditedAt: number;
   timer: ReturnType<typeof setTimeout>;
+  generation: number;
 }
 
 export class DirtyFilesBuffer {
   private dirtyFiles = new Map<string, DirtyFileEntry>();
   private readonly cooldownMs: number;
   private readonly extractor: AstExtractorService;
+  private currentGeneration = 0;
 
   constructor(
     private db: Database,
@@ -37,8 +39,11 @@ export class DirtyFilesBuffer {
       clearTimeout(existing.timer);
     }
 
+    const generation = ++this.currentGeneration;
     const timer = setTimeout(() => {
-      void this.commitFile(key);
+      this.commitFile(key, generation).catch((err) => {
+        logger.error('CODEGRAPH', `Background commit failed for ${key}`, undefined, { err });
+      });
     }, this.cooldownMs);
     timer.unref?.();
 
@@ -48,6 +53,7 @@ export class DirtyFilesBuffer {
       projectRoot,
       lastEditedAt: Date.now(),
       timer,
+      generation,
     });
   }
 
@@ -60,7 +66,11 @@ export class DirtyFilesBuffer {
       const entry = this.dirtyFiles.get(key);
       if (entry) {
         clearTimeout(entry.timer);
-        await this.commitFile(key);
+        try {
+          await this.commitFile(key, entry.generation);
+        } catch (err) {
+          logger.error('CODEGRAPH', `flushAll failed for ${key}`, undefined, { err });
+        }
       }
     }
   }
@@ -68,10 +78,14 @@ export class DirtyFilesBuffer {
   /**
    * Commits a single dirty file to the SQLite Code Graph.
    */
-  public async commitFile(key: string): Promise<boolean> {
+  public async commitFile(key: string, expectedGeneration?: number): Promise<boolean> {
     const entry = this.dirtyFiles.get(key);
     if (!entry) return false;
+    if (expectedGeneration !== undefined && entry.generation !== expectedGeneration) {
+      return false; // Stale macrotask timer execution aborted
+    }
     this.dirtyFiles.delete(key);
+    clearTimeout(entry.timer);
 
     const fullPath = entry.filePath.startsWith('/')
       ? entry.filePath
@@ -130,6 +144,7 @@ export class DirtyFilesBuffer {
     this.db.transaction(() => {
       this.db.prepare('DELETE FROM code_symbols WHERE project_id = ? AND file_path = ?').run(projectId, filePath);
       this.db.prepare('DELETE FROM code_edges WHERE project_id = ? AND source_file = ?').run(projectId, filePath);
+      this.db.prepare('DELETE FROM code_edges WHERE project_id = ? AND target_file = ?').run(projectId, filePath);
     })();
   }
 
@@ -142,6 +157,14 @@ export class DirtyFilesBuffer {
   ): void {
     const now = Date.now();
     this.db.transaction(() => {
+      // Backup decision links for this file's symbols before purge to prevent cascade wipe
+      const existingLinks = this.db.prepare(`
+        SELECT cs.symbol_name, sdl.decision_id, sdl.feature_id, sdl.relation_type
+        FROM symbol_decision_links sdl
+        JOIN code_symbols cs ON sdl.symbol_id = cs.id
+        WHERE cs.project_id = ? AND cs.file_path = ?
+      `).all(projectId, filePath) as Array<{ symbol_name: string; decision_id: number | null; feature_id: number; relation_type: string }>;
+
       // Purge prior records for this file
       this.db.prepare('DELETE FROM code_symbols WHERE project_id = ? AND file_path = ?').run(projectId, filePath);
       this.db.prepare('DELETE FROM code_edges WHERE project_id = ? AND source_file = ?').run(projectId, filePath);
@@ -153,8 +176,9 @@ export class DirtyFilesBuffer {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
+      const symbolIdMap = new Map<string, number>();
       for (const sym of symbols) {
-        insertSymbol.run(
+        const info = insertSymbol.run(
           projectId,
           filePath,
           sym.symbolName,
@@ -166,6 +190,21 @@ export class DirtyFilesBuffer {
           contentHash,
           now
         );
+        symbolIdMap.set(sym.symbolName, Number(info.lastInsertRowid));
+      }
+
+      // Restore decision links to new symbol IDs
+      if (existingLinks.length > 0) {
+        const restoreLink = this.db.prepare(`
+          INSERT OR IGNORE INTO symbol_decision_links (symbol_id, decision_id, feature_id, relation_type)
+          VALUES (?, ?, ?, ?)
+        `);
+        for (const link of existingLinks) {
+          const newSymbolId = symbolIdMap.get(link.symbol_name);
+          if (newSymbolId) {
+            restoreLink.run(newSymbolId, link.decision_id, link.feature_id, link.relation_type);
+          }
+        }
       }
 
       const insertEdge = this.db.prepare(`
@@ -199,8 +238,8 @@ export class DirtyFilesBuffer {
   ): BlastRadiusNode[] {
     const hasTargetFile = typeof targetFile === 'string' && targetFile.length > 0;
     const query = `
-      WITH RECURSIVE blast_radius(depth, file, symbol, relation) AS (
-        SELECT 1, source_file, source_symbol, edge_kind
+      WITH RECURSIVE blast_radius(depth, file, symbol, relation, path) AS (
+        SELECT 1, source_file, source_symbol, edge_kind, source_file || ':' || source_symbol
         FROM code_edges
         WHERE project_id = ? 
           AND target_symbol = ?
@@ -208,16 +247,19 @@ export class DirtyFilesBuffer {
         
         UNION
         
-        SELECT br.depth + 1, e.source_file, e.source_symbol, e.edge_kind
+        SELECT br.depth + 1, e.source_file, e.source_symbol, e.edge_kind, br.path || '->' || e.source_file || ':' || e.source_symbol
         FROM code_edges e
         JOIN blast_radius br 
-          ON (e.target_file = br.file OR e.target_file IS NULL OR e.target_file = '*') AND e.target_symbol = br.symbol
-        WHERE e.project_id = ? AND br.depth < ?
+          ON e.target_file = br.file AND e.target_symbol = br.symbol
+        WHERE e.project_id = ? 
+          AND br.depth < ?
+          AND INSTR(br.path, e.source_file || ':' || e.source_symbol) = 0
       )
-      SELECT depth, file, symbol, relation, count(*) as referenceCount
+      SELECT MIN(depth) as depth, file, symbol, relation, count(*) as referenceCount
       FROM blast_radius
-      GROUP BY depth, file, symbol, relation
+      GROUP BY file, symbol, relation
       ORDER BY depth ASC, referenceCount DESC
+      LIMIT 100
     `;
 
     try {
@@ -248,6 +290,7 @@ export class DirtyFilesBuffer {
         ${hasSourceFile ? 'AND source_file = ?' : ''}
       GROUP BY target_file, target_symbol, edge_kind
       ORDER BY referenceCount DESC
+      LIMIT 100
     `;
 
     try {
@@ -266,22 +309,24 @@ export class DirtyFilesBuffer {
   public getCodeImpactReport(
     projectId: string,
     symbolName: string,
-    filePath?: string
+    filePath?: string,
+    maxDepth = 2
   ): CodeImpactReport {
-    const directCallers = this.getBlastRadius(projectId, symbolName, filePath, 2);
+    const directCallers = this.getBlastRadius(projectId, symbolName, filePath, maxDepth);
     const outwardDependencies = this.getOutwardDependencies(projectId, symbolName, filePath);
 
-    // Query linked decisions
+    // Query linked decisions - fixed to f.title (was f.name)
     let linkedDecisions: CodeImpactReport['linkedDecisions'] = [];
     try {
       const decQuery = `
-        SELECT d.id as decisionId, d.topic, d.choice, d.reason, f.name as featureTitle
+        SELECT d.id as decisionId, d.topic, d.choice, d.reason, f.title as featureTitle
         FROM symbol_decision_links sdl
         JOIN code_symbols cs ON sdl.symbol_id = cs.id
         JOIN decisions d ON sdl.decision_id = d.id
         LEFT JOIN features f ON sdl.feature_id = f.id
         WHERE cs.project_id = ? AND cs.symbol_name = ?
         ORDER BY d.id DESC
+        LIMIT 50
       `;
       linkedDecisions = this.db.prepare(decQuery).all(projectId, symbolName) as any[];
     } catch {
@@ -296,6 +341,13 @@ export class DirtyFilesBuffer {
       linkedDecisions,
     };
   }
+
+  public dispose(): void {
+    for (const entry of this.dirtyFiles.values()) {
+      clearTimeout(entry.timer);
+    }
+    this.dirtyFiles.clear();
+  }
 }
 
 let defaultDirtyBuffer: DirtyFilesBuffer | null = null;
@@ -305,5 +357,12 @@ export function getDirtyFilesBuffer(db?: Database): DirtyFilesBuffer | null {
     defaultDirtyBuffer = new DirtyFilesBuffer(db);
   }
   return defaultDirtyBuffer;
+}
+
+export function resetDirtyFilesBuffer(): void {
+  if (defaultDirtyBuffer) {
+    defaultDirtyBuffer.dispose();
+    defaultDirtyBuffer = null;
+  }
 }
 

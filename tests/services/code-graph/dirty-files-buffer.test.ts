@@ -15,7 +15,7 @@ describe('DirtyFilesBuffer (Staged Stability & Code Graph Persistence)', () => {
     db = new Database(':memory:');
     db.exec(`
       CREATE TABLE IF NOT EXISTS schema_versions (version INTEGER PRIMARY KEY, applied_at TEXT);
-      CREATE TABLE IF NOT EXISTS features (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, status TEXT);
+      CREATE TABLE IF NOT EXISTS features (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, status TEXT);
       CREATE TABLE IF NOT EXISTS decisions (id INTEGER PRIMARY KEY AUTOINCREMENT, topic TEXT, choice TEXT, reason TEXT);
     `);
     ensureCodeGraphSchema(db);
@@ -134,8 +134,8 @@ export class UserAuth {
     const sym = db.prepare('SELECT id FROM code_symbols WHERE symbol_name = ?').get('UserAuth') as { id: number };
     expect(sym).toBeDefined();
 
-    // Seed feature & decision
-    db.prepare("INSERT INTO features (id, name, status) VALUES (1, 'RBAC Migration', 'completed')").run();
+    // Seed feature & decision (production schema uses 'title')
+    db.prepare("INSERT INTO features (id, title, status) VALUES (1, 'RBAC Migration', 'completed')").run();
     db.prepare("INSERT INTO decisions (id, topic, choice, reason) VALUES (10, 'Auth Pattern', 'UserAuth Class', 'Unified multi-tenant auth')").run();
 
     // Link symbol to decision
@@ -150,5 +150,53 @@ export class UserAuth {
     expect(report.linkedDecisions.length).toBe(1);
     expect(report.linkedDecisions[0].choice).toBe('UserAuth Class');
     expect(report.linkedDecisions[0].featureTitle).toBe('RBAC Migration');
+
+    // VERIFY DECISION LINK SURVIVAL: modify file and re-commit
+    writeFileSync(absA, `
+export class UserAuth {
+  public authenticate(): void {
+    // added comment
+  }
+}
+`, 'utf8');
+    buffer.markDirty(fileA, 'p1', testDir);
+    await buffer.flushAll();
+
+    const reportAfterEdit = buffer.getCodeImpactReport('p1', 'UserAuth');
+    expect(reportAfterEdit.linkedDecisions.length).toBe(1);
+    expect(reportAfterEdit.linkedDecisions[0].featureTitle).toBe('RBAC Migration');
+  });
+
+  it('handles cyclic dependencies gracefully without infinite loops or duplicate explosion', async () => {
+    const fileA = 'src/serviceA.ts';
+    const fileB = 'src/serviceB.ts';
+    const absA = join(testDir, fileA);
+    const absB = join(testDir, fileB);
+    mkdirSync(join(testDir, 'src'), { recursive: true });
+
+    writeFileSync(absA, `
+import { callB } from './serviceB.js';
+export function callA(): void {
+  callB();
+}
+`, 'utf8');
+
+    writeFileSync(absB, `
+import { callA } from './serviceA.js';
+export function callB(): void {
+  callA();
+}
+`, 'utf8');
+
+    buffer.markDirty(fileA, 'p1', testDir);
+    buffer.markDirty(fileB, 'p1', testDir);
+    await buffer.flushAll();
+
+    const blast = buffer.getBlastRadius('p1', 'callA');
+    expect(blast.length).toBeGreaterThanOrEqual(1);
+    expect(blast.some(b => b.symbol === 'callB')).toBe(true);
+    // Verified that depth is deduplicated to MIN(depth)
+    const callBNodes = blast.filter(b => b.symbol === 'callB');
+    expect(callBNodes.length).toBe(1);
   });
 });
