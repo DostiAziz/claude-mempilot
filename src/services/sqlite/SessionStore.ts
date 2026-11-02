@@ -61,6 +61,7 @@ import { stripMemoryTags } from '../../utils/tag-stripping.js';
 import { applySqliteConnectionPragmas, assertSchemaWriterCompatible, claimSchemaWriter, LATEST_SCHEMA_VERSION } from './connection.js';
 import { streamRows } from './stream-rows.js';
 import { ensureMediaSchema } from './media.js';
+import { ensureCodeGraphSchema } from '../code-graph/schema.js';
 import { OBSERVATIONS_FTS_TRIGGERS_SQL, SESSION_SUMMARIES_FTS_TRIGGERS_SQL } from './SessionSearch.js';
 import {
   assertCanonicalDecimal,
@@ -327,6 +328,7 @@ export class SessionStore {
     this.ensureNativePromptIdentity();
     this.ensureObservationFileIndex();
     ensureMediaSchema(this.db);
+    ensureCodeGraphSchema(this.db);
   }
 
   /**

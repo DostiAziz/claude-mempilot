@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import { runDistillationMigrations } from '../../sqlite/migrations/runner.js';
+import type { CodeImpactReport } from '../../code-graph/types.js';
 
 export const BRIEFING_EXTENSION_CHAR_LIMIT = 3_500;
 
@@ -509,3 +510,73 @@ export function renderBriefingExtensions(
 
   return rendered.length <= maxChars ? rendered : '';
 }
+
+export function formatCodeImpactMcpText(
+  report: CodeImpactReport,
+  options: { maxCallers?: number; maxDependencies?: number; maxDecisions?: number } = {}
+): string {
+  const MAX_CALLERS = options.maxCallers ?? 25;
+  const MAX_DEPENDENCIES = options.maxDependencies ?? 20;
+  const MAX_DECISIONS = options.maxDecisions ?? 10;
+
+  const parts: string[] = [];
+  parts.push(`# Code Impact Report: \`${report.symbolName}\``);
+  if (report.filePath) parts.push(`**File**: \`${report.filePath}\``);
+  parts.push('');
+
+  // 1. Blast Radius
+  const totalCallers = report.directCallers.length;
+  parts.push(`## 💥 Blast Radius (Inward Callers: ${totalCallers})`);
+  if (totalCallers === 0) {
+    parts.push('*No callers recorded in code graph (leaf or entry point).*');
+  } else {
+    parts.push('| Depth | Caller File | Caller Symbol | Relation | References |');
+    parts.push('|---|---|---|---|---|');
+    const callersToShow = report.directCallers.slice(0, MAX_CALLERS);
+    for (const c of callersToShow) {
+      parts.push(`| ${c.depth} | ${c.file} | ${c.symbol} | ${c.relation} | ${c.referenceCount} |`);
+    }
+    if (totalCallers > MAX_CALLERS) {
+      parts.push(`*... ${totalCallers - MAX_CALLERS} additional callers omitted to preserve token budget.*`);
+    }
+  }
+  parts.push('');
+
+  // 2. Outward Dependencies
+  const totalDeps = report.outwardDependencies.length;
+  parts.push(`## 📦 Outward Dependencies (${totalDeps})`);
+  if (totalDeps === 0) {
+    parts.push('*No outward dependencies recorded.*');
+  } else {
+    parts.push('| Target File | Target Symbol | Relation | Count |');
+    parts.push('|---|---|---|---|');
+    const depsToShow = report.outwardDependencies.slice(0, MAX_DEPENDENCIES);
+    for (const d of depsToShow) {
+      parts.push(`| ${d.file} | ${d.symbol} | ${d.relation} | ${d.referenceCount} |`);
+    }
+    if (totalDeps > MAX_DEPENDENCIES) {
+      parts.push(`*... ${totalDeps - MAX_DEPENDENCIES} additional dependencies omitted.*`);
+    }
+  }
+  parts.push('');
+
+  // 3. Linked Decisions
+  const totalDecisions = report.linkedDecisions.length;
+  parts.push(`## 🧠 Linked Architectural Decisions (${totalDecisions})`);
+  if (totalDecisions === 0) {
+    parts.push('*No past architectural decisions specifically linked to this symbol.*');
+  } else {
+    const decisionsToShow = report.linkedDecisions.slice(0, MAX_DECISIONS);
+    for (const dec of decisionsToShow) {
+      parts.push(`- **Decision #${dec.decisionId}: ${dec.topic}** (Feature: ${dec.featureTitle || '-'})`);
+      parts.push(`  - **Choice**: ${dec.choice}`);
+      if (dec.reason) parts.push(`  - **Reason**: ${dec.reason}`);
+    }
+    if (totalDecisions > MAX_DECISIONS) {
+      parts.push(`*... ${totalDecisions - MAX_DECISIONS} additional decisions omitted.*`);
+    }
+  }
+
+  return parts.join('\n');
+}
+

@@ -97,7 +97,10 @@ export class DistillManager {
             (feature_id, distilled_reflection_id, topic, choice, alternatives_rejected, reason)
            VALUES (?, ?, ?, ?, ?, ?)`,
         ).run(feature.id, distillId, d.topic, d.choice, JSON.stringify(d.alternatives_rejected ?? []), d.reason ?? null);
-        newDecisionIds.push((r.lastInsertRowid as number) || 0);
+        const decisionId = (r.lastInsertRowid as number) || 0;
+        newDecisionIds.push(decisionId);
+
+        this.linkDecisionToSymbols(input.projectId, feature.id, decisionId, d);
       }
 
       // Insert todos
@@ -302,5 +305,45 @@ export class DistillManager {
 
 Observations:
 ${items}`;
+  }
+
+  private linkDecisionToSymbols(projectId: string, featureId: number, decisionId: number, d: any): void {
+    if (!decisionId) return;
+    try {
+      const textToScan = `${d.topic || ''} ${d.choice || ''} ${d.reason || ''}`;
+      const backticked = Array.from(textToScan.matchAll(/`([a-zA-Z0-9_$.:-]+)`/g), m => m[1]);
+      const identifiers = Array.from(textToScan.matchAll(/\b[A-Za-z_][A-Za-z0-9_]{2,}\b/g), m => m[0]);
+
+      const STOPWORDS = new Set([
+        'the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'true', 'false',
+        'null', 'undefined', 'const', 'function', 'class', 'import', 'export', 'return',
+        'async', 'await', 'using', 'service', 'manager', 'handler', 'table', 'query',
+        'update', 'create', 'delete', 'select', 'where', 'each', 'file', 'code',
+      ]);
+
+      const candidateNames = Array.from(new Set([...backticked, ...identifiers]))
+        .filter(name => name.length >= 3 && !STOPWORDS.has(name.toLowerCase()))
+        .slice(0, 10);
+
+      if (candidateNames.length === 0) return;
+
+      const placeholders = candidateNames.map(() => '?').join(', ');
+      const candidates = this.db.prepare(`
+        SELECT id, symbol_name FROM code_symbols
+        WHERE project_id = ? AND symbol_name IN (${placeholders})
+        LIMIT 5
+      `).all(projectId, ...candidateNames) as Array<{ id: number; symbol_name: string }>;
+
+      const insertLink = this.db.prepare(`
+        INSERT OR IGNORE INTO symbol_decision_links (symbol_id, decision_id, feature_id, relation_type)
+        VALUES (?, ?, ?, 'modified')
+      `);
+
+      for (const cand of candidates) {
+        insertLink.run(cand.id, decisionId, featureId);
+      }
+    } catch {
+      // Ignore if code graph tables are not queried
+    }
   }
 }

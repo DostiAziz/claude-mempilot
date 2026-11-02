@@ -48,7 +48,9 @@ import {
   formatDecisionsMcpText,
   formatTodosMcpText,
   formatFeatureHistoryMcpText,
+  formatCodeImpactMcpText,
 } from '../../../context/sections/BriefingExtensions.js';
+import { getDirtyFilesBuffer } from '../../../code-graph/DirtyFilesBuffer.js';
 import { isWorkStateEnabled } from '../../../../shared/work-state-setting.js';
 import { SettingsDefaultsManager } from '../../../../shared/SettingsDefaultsManager.js';
 import { getViewerBaseUrl } from '../../../../shared/worker-utils.js';
@@ -260,6 +262,7 @@ export class SearchRoutes extends BaseRouteHandler {
     app.get('/api/knowledge-graph/feature-history', this.handleGetFeatureHistory.bind(this));
     app.get('/api/knowledge-graph/decisions', this.handleListDecisions.bind(this));
     app.get('/api/knowledge-graph/todos', this.handleListTodos.bind(this));
+    app.get('/api/knowledge-graph/code-impact', this.handleCodeImpact.bind(this));
   }
 
   private handleUnifiedSearch = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
@@ -890,5 +893,37 @@ export class SearchRoutes extends BaseRouteHandler {
       return;
     }
     res.json({ todos, count: todos.length, text });
+  });
+
+  private handleCodeImpact = this.wrapHandler(async (req: Request, res: Response): Promise<void> => {
+    const db = this.searchManager.getSessionStore().db;
+    const rawSymbol = SearchRoutes.firstString(req.query.symbol_name) ?? SearchRoutes.firstString(req.query.symbol) ?? '';
+    const symbolName = rawSymbol.trim();
+    if (!symbolName) {
+      throw new AppError('symbol_name is required', 400, 'MISSING_PARAMETER');
+    }
+    const filePath = SearchRoutes.firstString(req.query.file_path) || undefined;
+    const depthRaw = SearchRoutes.firstString(req.query.depth);
+    const depth = Math.min(Math.max(parseInt(depthRaw || '2', 10) || 2, 1), 3);
+
+    const projects = this.resolveKnowledgeGraphProjects(req);
+    let projectId = projects[0];
+    if (!projectId) {
+      const recent = db.prepare('SELECT project FROM sdk_sessions ORDER BY id DESC LIMIT 1').get() as { project: string } | undefined;
+      projectId = recent?.project || 'default';
+    }
+
+    const buffer = getDirtyFilesBuffer(db);
+    const report = buffer
+      ? buffer.getCodeImpactReport(projectId, symbolName, filePath, depth)
+      : { symbolName, directCallers: [], outwardDependencies: [], linkedDecisions: [] };
+
+    const text = formatCodeImpactMcpText(report);
+    if (req.query.format === 'text') {
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.send(text);
+      return;
+    }
+    res.json({ ...report, text });
   });
 }

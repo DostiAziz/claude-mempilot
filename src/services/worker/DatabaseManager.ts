@@ -19,6 +19,7 @@ import { purgeLinkedToolUses } from '../sqlite/tool-uses.js';
 import { parseRetentionDays } from '../../shared/retention-days.js';
 import type { DBSession } from '../worker-types.js';
 import type { ProviderRegistry } from '../../shared/ProviderRegistry.js';
+import { resetDirtyFilesBuffer } from '../code-graph/DirtyFilesBuffer.js';
 
 export class DatabaseManager {
   private db: Database | null = null;
@@ -115,6 +116,7 @@ export class DatabaseManager {
   }
 
   async close(): Promise<void> {
+    resetDirtyFilesBuffer();
     if (this.mediaCleanupTimer) clearInterval(this.mediaCleanupTimer);
     this.mediaCleanupTimer = null;
     this.mediaCloudSync?.stop();
