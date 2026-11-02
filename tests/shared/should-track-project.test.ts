@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
-import { CLAUDE_CONFIG_DIR, MARKETPLACE_ROOT, OBSERVER_SESSIONS_DIR } from '../../src/shared/paths.js';
+import { CLAUDE_CONFIG_DIR, MARKETPLACE_ROOT, OBSERVER_SESSIONS_DIR, DATA_DIR, OBSERVER_SESSIONS_PROJECT } from '../../src/shared/paths.js';
 import { join, normalize } from 'path';
 
 // Snapshot the real module BEFORE mock.module mutates the live namespace, then
@@ -19,7 +19,7 @@ afterAll(() => {
 });
 
 // Import after mock so the module picks up the mocked dependency
-const { shouldTrackProject } = await import('../../src/shared/should-track-project.js');
+const { shouldTrackProject, shouldEmitProjectRow } = await import('../../src/shared/should-track-project.js');
 
 const PLUGINS_DIR_NAME = 'plugins';
 const PLUGIN_CACHE_DIR_NAME = 'cache';
@@ -86,8 +86,20 @@ describe('shouldTrackProject — path normalization', () => {
     expect(shouldTrackProject(unrelated)).toBe(true);
   });
 
+  it('returns false when cwd matches DATA_DIR (~/.claude-mem)', () => {
+    expect(shouldTrackProject(DATA_DIR)).toBe(false);
+    expect(shouldTrackProject(join(DATA_DIR, 'state'))).toBe(false);
+  });
+
   it('returns false when CLAUDE_MEM_INTERNAL is set', () => {
     process.env.CLAUDE_MEM_INTERNAL = '1';
     expect(shouldTrackProject('/any/path')).toBe(false);
+  });
+
+  it('shouldEmitProjectRow excludes observer sessions and .claude-mem', () => {
+    expect(shouldEmitProjectRow(OBSERVER_SESSIONS_PROJECT)).toBe(false);
+    expect(shouldEmitProjectRow('.claude-mem')).toBe(false);
+    expect(shouldEmitProjectRow('claude-mempilot')).toBe(true);
+    expect(shouldEmitProjectRow(null)).toBe(true);
   });
 });

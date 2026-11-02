@@ -281,3 +281,21 @@ export function isGrokBotInternalPrompt(text: string): boolean {
   const opening = text.trimStart();
   return GROK_BOT_INTERNAL_PROMPT_OPENINGS.some(pattern => pattern.test(opening));
 }
+
+/**
+ * Mempilot internal distillation and summary prompts. These are spawned by
+ * internal CLI providers (such as agy / gemini-cli) during background
+ * distillation rather than typed by a human developer.
+ */
+const MEMPILOT_INTERNAL_PROMPT_OPENINGS: readonly RegExp[] = [
+  /^Distill the following coding observations/i,
+  /^<distill\b/i,
+  /^Summarize the following session/i,
+];
+
+export function isMempilotInternalPrompt(text: string): boolean {
+  if (!text) return false;
+  const opening = text.trimStart();
+  return MEMPILOT_INTERNAL_PROMPT_OPENINGS.some(pattern => pattern.test(opening));
+}
+

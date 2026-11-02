@@ -220,3 +220,33 @@ describe('POST /api/sessions/init: grok-bot sub-agent briefs', () => {
     expect(store.findSessionDbIdByContentSessionId('cursor-session', 'cursor')).toBe(body.sessionDbId as number);
   });
 });
+
+describe('session-init hook: Mempilot internal distillation prompts', () => {
+  const cwd = join(tmpdir(), 'claude-mem-internal-prompt-test');
+  let workerCalls: string[] = [];
+
+  beforeEach(() => {
+    workerCalls = [];
+    setSessionInitDependenciesForTesting({
+      shouldTrackProject: () => true,
+      loadFromFileOnce: () => ({ CLAUDE_MEM_SEMANTIC_INJECT: 'false' }),
+      resolveRuntimeContext: () => ({ runtime: 'worker' }),
+      isWorkerFallback: () => false,
+      executeWithWorkerFallback: async (apiPath: string) => {
+        workerCalls.push(apiPath);
+        return { sessionDbId: 42, promptNumber: 1 };
+      },
+    });
+  });
+
+  afterEach(() => {
+    setSessionInitDependenciesForTesting();
+  });
+
+  it('does not start a session for a distillation prompt across any platform', async () => {
+    const distillPrompt = 'Distill the following coding observations into a concise architectural reflection in XML format:\n<distill>...</distill>';
+    const result = await sessionInitHandler.execute({ sessionId: 'distill-test', cwd, platform: 'antigravity-cli', prompt: distillPrompt });
+    expect(result.continue).toBe(true);
+    expect(workerCalls).toEqual([]);
+  });
+});

@@ -8,6 +8,14 @@ export interface GenericCliProviderOptions {
   model: string;
 }
 
+const INTERNAL_CLI_ENV: NodeJS.ProcessEnv = {
+  ...process.env,
+  CLAUDE_MEM_INTERNAL: '1',
+  CLAUDE_MEM_DISABLE_TOOL_HOOKS: '1',
+  CLAUDE_MEM_DISABLE_OBSERVATION: '1',
+  CLAUDE_MEM_DISABLE_SUMMARY: '1',
+};
+
 export class GenericCliProvider implements LlmProvider {
   name: string;
   model: string;
@@ -22,7 +30,7 @@ export class GenericCliProvider implements LlmProvider {
   async isAvailable(): Promise<boolean> {
     return new Promise((resolve) => {
       try {
-        const proc = spawn(this.binary, ['--version'], { stdio: 'pipe', timeout: 5000 });
+        const proc = spawn(this.binary, ['--version'], { stdio: 'pipe', timeout: 5000, env: INTERNAL_CLI_ENV });
         let completed = false;
 
         proc.on('close', (code) => {
@@ -65,6 +73,7 @@ export class GenericCliProvider implements LlmProvider {
         const args = this.model !== 'default' ? ['--model', this.model] : [];
         const proc = spawn(this.binary, args, {
           stdio: ['pipe', 'pipe', 'pipe'],
+          env: INTERNAL_CLI_ENV,
         });
 
         proc.stdout.on('data', (chunk: Buffer) => {

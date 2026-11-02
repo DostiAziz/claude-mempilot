@@ -7,6 +7,7 @@ import {
   MARKETPLACE_ROOT,
   OBSERVER_SESSIONS_DIR,
   OBSERVER_SESSIONS_PROJECT,
+  DATA_DIR,
 } from './paths.js';
 
 const PLUGINS_DIR_NAME = 'plugins';
@@ -34,6 +35,9 @@ function isWithin(child: string, parent: string): boolean {
 export function shouldTrackProject(cwd: string): boolean {
   if (process.env.CLAUDE_MEM_INTERNAL === '1') return false;
   if (!cwd) return true;
+  if (isWithin(cwd, DATA_DIR)) {
+    return false;
+  }
   if (isWithin(cwd, OBSERVER_SESSIONS_DIR)) {
     return false;
   }
@@ -46,5 +50,5 @@ export function shouldTrackProject(cwd: string): boolean {
 
 export function shouldEmitProjectRow(project: string | null | undefined): boolean {
   if (!project) return true;
-  return project !== OBSERVER_SESSIONS_PROJECT;
+  return project !== OBSERVER_SESSIONS_PROJECT && project !== '.claude-mem';
 }

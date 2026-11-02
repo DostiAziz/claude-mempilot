@@ -9,6 +9,14 @@ export interface GeminiCliProviderOptions {
   model?: string;        // default: 'gemini-2.5-flash-lite'
 }
 
+const INTERNAL_CLI_ENV: NodeJS.ProcessEnv = {
+  ...process.env,
+  CLAUDE_MEM_INTERNAL: '1',
+  CLAUDE_MEM_DISABLE_TOOL_HOOKS: '1',
+  CLAUDE_MEM_DISABLE_OBSERVATION: '1',
+  CLAUDE_MEM_DISABLE_SUMMARY: '1',
+};
+
 export class GeminiCliProvider implements LlmProvider {
   name = 'gemini-cli';
   model: string;
@@ -22,7 +30,7 @@ export class GeminiCliProvider implements LlmProvider {
   async isAvailable(): Promise<boolean> {
     return new Promise((resolve) => {
       try {
-        const proc = spawn(this.binary, ['--version'], { stdio: 'pipe', timeout: 5000 });
+        const proc = spawn(this.binary, ['--version'], { stdio: 'pipe', timeout: 5000, env: INTERNAL_CLI_ENV });
         let completed = false;
 
         proc.on('close', (code) => {
@@ -63,6 +71,7 @@ export class GeminiCliProvider implements LlmProvider {
         const promptFlagArg = isAgy ? input.prompt : '-';
         const proc = spawn(this.binary, ['-p', promptFlagArg, '--model', this.model], {
           stdio: ['pipe', 'pipe', 'pipe'],
+          env: INTERNAL_CLI_ENV,
         });
 
         proc.stdout.on('data', (chunk: Buffer) => {
@@ -145,7 +154,7 @@ export async function isGeminiCliAvailable(): Promise<boolean> {
 
     return new Promise((resolve) => {
       try {
-        const proc = spawn(binary, ['--version'], { stdio: 'pipe', timeout: 1000 });
+        const proc = spawn(binary, ['--version'], { stdio: 'pipe', timeout: 1000, env: INTERNAL_CLI_ENV });
         let completed = false;
 
         proc.on('close', () => {

@@ -18,7 +18,7 @@ import { loadFromFileOnce as defaultLoadFromFileOnce } from '../../shared/hook-s
 import { normalizePlatformSource } from '../../shared/platform-source.js';
 import { SEMANTIC_CONTEXT_MIN_QUERY_CHARS } from '../../shared/semantic-context.js';
 import { workStatePlatform } from '../../shared/work-state-telemetry.js';
-import { isCodexInternalPrompt, isGrokBotInternalPrompt, isInternalProtocolPayload } from '../../utils/tag-stripping.js';
+import { isCodexInternalPrompt, isGrokBotInternalPrompt, isInternalProtocolPayload, isMempilotInternalPrompt } from '../../utils/tag-stripping.js';
 import {
   resolveRuntimeContext as defaultResolveRuntimeContext,
   logServerFallback as defaultLogServerFallback,
@@ -176,6 +176,15 @@ const sessionInit = {
     // person's prompt (#4811).
     if (rawPrompt && normalizePlatformSource(input.platform) === 'grok-bot' && isGrokBotInternalPrompt(rawPrompt)) {
       logger.debug('HOOK', 'session-init: skipping a Grok Bot internal helper prompt', {
+        reason: 'internal_system_prompt',
+        preview: rawPrompt.slice(0, 80),
+      });
+      return { continue: true, suppressOutput: true };
+    }
+
+    // Mempilot runs internal distillation/summary tasks through CLI providers.
+    if (rawPrompt && isMempilotInternalPrompt(rawPrompt)) {
+      logger.debug('HOOK', 'session-init: skipping a Mempilot internal distillation/summary prompt', {
         reason: 'internal_system_prompt',
         preview: rawPrompt.slice(0, 80),
       });

@@ -7,7 +7,7 @@ import { requireLocalhost } from '../middleware.js';
 import { isForeignLoopbackBrowserWrite } from './SettingsRoutes.js';
 import { logger } from '../../../../utils/logger.js';
 import { logChromaWriteFailure } from '../../search/errors.js';
-import { stripMemoryTags, isCodexInternalPrompt, isGrokBotInternalPrompt, isInternalProtocolPayload } from '../../../../utils/tag-stripping.js';
+import { stripMemoryTags, isCodexInternalPrompt, isGrokBotInternalPrompt, isInternalProtocolPayload, isMempilotInternalPrompt } from '../../../../utils/tag-stripping.js';
 import { SessionManager } from '../../SessionManager.js';
 import { DatabaseManager } from '../../DatabaseManager.js';
 import { ClaudeProvider } from '../../ClaudeProvider.js';
@@ -813,6 +813,13 @@ export class SessionRoutes extends BaseRouteHandler {
     // Grok Bot only (see the hook handler, #4811).
     if (rawPrompt && platformSource === 'grok-bot' && isGrokBotInternalPrompt(rawPrompt)) {
       logger.debug('HTTP', 'session-init: skipping a Grok Bot internal helper prompt before session creation', { contentSessionId });
+      res.json({ skipped: true, reason: 'internal_system_prompt' });
+      return;
+    }
+
+    // Mempilot internal distillation and summary tasks run through CLI providers
+    if (rawPrompt && isMempilotInternalPrompt(rawPrompt)) {
+      logger.debug('HTTP', 'session-init: skipping a Mempilot internal distillation/summary prompt before session creation', { contentSessionId });
       res.json({ skipped: true, reason: 'internal_system_prompt' });
       return;
     }
