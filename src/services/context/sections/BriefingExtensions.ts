@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import { runDistillationMigrations } from '../../sqlite/migrations/runner.js';
+import type { CodeImpactReport } from '../../code-graph/types.js';
 
 export const BRIEFING_EXTENSION_CHAR_LIMIT = 3_500;
 
@@ -509,3 +510,48 @@ export function renderBriefingExtensions(
 
   return rendered.length <= maxChars ? rendered : '';
 }
+
+export function formatCodeImpactMcpText(report: CodeImpactReport): string {
+  const parts: string[] = [];
+  parts.push(`# Code Impact Report: \`${report.symbolName}\``);
+  if (report.filePath) parts.push(`**File**: \`${report.filePath}\``);
+  parts.push('');
+
+  parts.push(`## 💥 Blast Radius (Inward Callers: ${report.directCallers.length})`);
+  if (report.directCallers.length === 0) {
+    parts.push('*No callers recorded in code graph (leaf or entry point).*');
+  } else {
+    parts.push('| Depth | Caller File | Caller Symbol | Relation | References |');
+    parts.push('|---|---|---|---|---|');
+    for (const c of report.directCallers) {
+      parts.push(`| ${c.depth} | ${c.file} | ${c.symbol} | ${c.relation} | ${c.referenceCount} |`);
+    }
+  }
+  parts.push('');
+
+  parts.push(`## 📦 Outward Dependencies (${report.outwardDependencies.length})`);
+  if (report.outwardDependencies.length === 0) {
+    parts.push('*No outward dependencies recorded.*');
+  } else {
+    parts.push('| Target File | Target Symbol | Relation | Count |');
+    parts.push('|---|---|---|---|');
+    for (const d of report.outwardDependencies) {
+      parts.push(`| ${d.file} | ${d.symbol} | ${d.relation} | ${d.referenceCount} |`);
+    }
+  }
+  parts.push('');
+
+  parts.push(`## 🧠 Linked Architectural Decisions (${report.linkedDecisions.length})`);
+  if (report.linkedDecisions.length === 0) {
+    parts.push('*No past architectural decisions specifically linked to this symbol.*');
+  } else {
+    for (const dec of report.linkedDecisions) {
+      parts.push(`- **Decision #${dec.decisionId}: ${dec.topic}** (Feature: ${dec.featureTitle || '-'})`);
+      parts.push(`  - **Choice**: ${dec.choice}`);
+      parts.push(`  - **Reason**: ${dec.reason}`);
+    }
+  }
+
+  return parts.join('\n');
+}
+

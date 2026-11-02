@@ -97,7 +97,10 @@ export class DistillManager {
             (feature_id, distilled_reflection_id, topic, choice, alternatives_rejected, reason)
            VALUES (?, ?, ?, ?, ?, ?)`,
         ).run(feature.id, distillId, d.topic, d.choice, JSON.stringify(d.alternatives_rejected ?? []), d.reason ?? null);
-        newDecisionIds.push((r.lastInsertRowid as number) || 0);
+        const decisionId = (r.lastInsertRowid as number) || 0;
+        newDecisionIds.push(decisionId);
+
+        this.linkDecisionToSymbols(input.projectId, feature.id, decisionId, d);
       }
 
       // Insert todos
@@ -302,5 +305,26 @@ export class DistillManager {
 
 Observations:
 ${items}`;
+  }
+
+  private linkDecisionToSymbols(projectId: string, featureId: number, decisionId: number, d: any): void {
+    if (!decisionId) return;
+    try {
+      const candidates = this.db.prepare(`
+        SELECT id FROM code_symbols
+        WHERE project_id = ? AND (
+          symbol_name = ? OR ? LIKE '%' || symbol_name || '%' OR ? LIKE '%' || symbol_name || '%'
+        ) LIMIT 5
+      `).all(projectId, d.topic, d.choice, d.topic) as Array<{ id: number }>;
+
+      for (const cand of candidates) {
+        this.db.prepare(`
+          INSERT OR IGNORE INTO symbol_decision_links (symbol_id, decision_id, feature_id, relation_type)
+          VALUES (?, ?, ?, 'modified')
+        `).run(cand.id, decisionId, featureId);
+      }
+    } catch {
+      // Ignore if code graph tables are not queried
+    }
   }
 }

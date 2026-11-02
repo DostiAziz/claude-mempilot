@@ -23,6 +23,7 @@ import { committedMediaEventResult } from '../../media/linkage.js';
 import { captureObservationMedia } from '../../media/capture.js';
 import type { MediaEventIdentity } from '../../../shared/media-contract.js';
 import type { SpooledDeliverablesPayload } from '../../../shared/hook-spool.js';
+import { getDirtyFilesBuffer } from '../../code-graph/DirtyFilesBuffer.js';
 import { isInsideDeliverablesDir, resolveDeliverablesDir } from '../../../shared/deliverables.js';
 import { statSync } from 'fs';
 
@@ -254,16 +255,27 @@ export async function ingestObservation(payload: ObservationPayload, handoff: In
     return { ok: true, status: 'skipped', reason: agentSkip.reason };
   }
 
-  const fileOperationTools = new Set(['Edit', 'Write', 'Read', 'NotebookEdit']);
+  const fileOperationTools = new Set(['Edit', 'Write', 'Read', 'NotebookEdit', 'edit_file', 'write_file']);
   if (fileOperationTools.has(payload.toolName) && payload.toolInput && typeof payload.toolInput === 'object') {
-    const input = payload.toolInput as { file_path?: string; notebook_path?: string };
-    const filePath = input.file_path || input.notebook_path;
+    const input = payload.toolInput as { file_path?: string; Path?: string; path?: string; notebook_path?: string };
+    const filePath = input.file_path || input.Path || input.path || input.notebook_path;
     if (filePath && filePath.includes('session-memory')) {
       return { ok: true, status: 'skipped', reason: 'session_memory_meta' };
     }
   }
 
   const store = dbManager.getSessionStore();
+
+  // Stage modified files in DirtyFilesBuffer
+  const fileWriteTools = new Set(['Edit', 'Write', 'NotebookEdit', 'edit_file', 'write_file']);
+  if (fileWriteTools.has(payload.toolName) && payload.toolInput && typeof payload.toolInput === 'object') {
+    const input = payload.toolInput as { file_path?: string; Path?: string; path?: string; notebook_path?: string };
+    const filePath = input.file_path || input.Path || input.path || input.notebook_path;
+    if (filePath && cwd) {
+      const buffer = getDirtyFilesBuffer(store.db);
+      buffer?.markDirty(filePath, project, cwd);
+    }
+  }
 
   let sessionDbId: number;
   let promptNumber: number;
@@ -459,6 +471,12 @@ export async function ingestSummarize(
     return { status: 'unknown_session' };
   }
 
+  // Flush any staged dirty files into the code graph on turn completion
+  const dirtyBuffer = getDirtyFilesBuffer(store.db);
+  if (dirtyBuffer) {
+    await dirtyBuffer.flushAll();
+  }
+
   // An excluded checkout is never summarized, even one excluded after its
   // session began (R5-1). A host that cannot check the user's exclusions
   // itself sends its checkout; without one, the checkout the session was
@@ -611,6 +629,12 @@ export async function ingestSessionEnd(
   const sessionDbId = store.findSessionDbIdByContentSessionId(payload.contentSessionId, payload.platformSource);
   if (sessionDbId === null) {
     return { status: 'unknown_session' };
+  }
+
+  // Flush any staged dirty files into the code graph on turn completion
+  const dirtyBuffer = getDirtyFilesBuffer(store.db);
+  if (dirtyBuffer) {
+    await dirtyBuffer.flushAll();
   }
 
   await deps.sessionManager.requestSessionWrapup(sessionDbId);

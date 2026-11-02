@@ -1245,6 +1245,31 @@ Optional Dumb search: \`dumb_search({query, project})\`. Doesn’t reason about 
         text: true,
       });
     }
+  },
+  {
+    name: 'code_graph_impact',
+    description: 'Analyze the blast radius of modifying a symbol or file. Returns callers (who depends on it and might break?), outward dependencies, and past architectural decisions made regarding this code.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        symbol_name: { type: 'string', description: 'Name of the function, class, method, or type to inspect' },
+        file_path: { type: 'string', description: 'Optional relative file path containing the symbol' },
+        depth: { type: 'number', description: 'Blast radius traversal depth (1-3, default: 2)' },
+        project: { type: 'string', description: 'Optional project name; defaults to current checkout' }
+      },
+      required: ['symbol_name'],
+      additionalProperties: false
+    },
+    annotations: READ_ONLY_TOOL_ANNOTATIONS,
+    handler: async (args: any) => {
+      if (typeof args?.symbol_name !== 'string' || !args.symbol_name.trim()) {
+        throw new Error('Missing required argument: symbol_name');
+      }
+      return await callWorker('/api/knowledge-graph/code-impact', {
+        query: { ...withCheckoutProjects(args ?? {}, currentCheckout()), format: 'text' },
+        text: true,
+      });
+    }
   }
 ];
 
