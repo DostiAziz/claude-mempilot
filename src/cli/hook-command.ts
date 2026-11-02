@@ -96,6 +96,12 @@ export async function hookCommand(rawPlatform: string, event: string, options: H
   // (closed enum enforced inside; non-enum events just omit hook_type).
   setActiveHookType(event);
 
+  // Read stdin and recover the host's event name BEFORE the pipeline can throw.
+  // Every failure branch below still has to emit an output envelope, and on
+  // Antigravity the envelope's shape decides whether the user's tool call is
+  // allowed — a fallback shaped for the wrong event denies it outright.
+  let hostEvent: string | undefined;
+
   // #3106: env opt-out for the high-frequency tool hooks. Checked before stdin
   // and handler work, and still emits the no-op envelope so the host gets
   // valid JSON.
@@ -117,12 +123,6 @@ export async function hookCommand(rawPlatform: string, event: string, options: H
 
   const adapter = getPlatformAdapter(platform);
   const handler = getEventHandler(event);
-
-  // Read stdin and recover the host's event name BEFORE the pipeline can throw.
-  // Every failure branch below still has to emit an output envelope, and on
-  // Antigravity the envelope's shape decides whether the user's tool call is
-  // allowed — a fallback shaped for the wrong event denies it outright.
-  let hostEvent: string | undefined;
 
   try {
     const rawInput = await readJsonFromStdin({ safetyTimeoutMs: options.stdinSafetyTimeoutMs });

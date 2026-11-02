@@ -38,7 +38,7 @@ const ENV_KEYS = [
 /** The provider step of `npx claude-mem update`. */
 async function runUpdateProviderStep(): Promise<{ provider: string; options: InstallOptions }> {
   const options: InstallOptions = {};
-  validateNonInteractiveProvider(options, createInstallSummary());
+  validateNonInteractiveProvider(options, createInstallSummary(), true);
   const provider = await promptProvider(options, null, '0.0.0-test');
   return { provider, options };
 }

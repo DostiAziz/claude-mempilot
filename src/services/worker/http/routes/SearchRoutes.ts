@@ -575,7 +575,7 @@ export class SearchRoutes extends BaseRouteHandler {
     const withWorkState = (text: string): string =>
       workStateSection && text ? `${workStateSection}\n\n${text}` : workStateSection || text;
 
-    const briefingExtensionsRaw = process.env.CLAUDE_MEM_BRIEFING_EXTENSIONS ?? (settings as Record<string, unknown>).CLAUDE_MEM_BRIEFING_EXTENSIONS;
+    const briefingExtensionsRaw = process.env.CLAUDE_MEM_BRIEFING_EXTENSIONS ?? (settings as unknown as Record<string, unknown>).CLAUDE_MEM_BRIEFING_EXTENSIONS;
     const briefingExtensionsEnabled = String(briefingExtensionsRaw ?? 'true').toLowerCase() !== 'false';
     let briefingSection = '';
     if (!forHuman && briefingExtensionsEnabled) {

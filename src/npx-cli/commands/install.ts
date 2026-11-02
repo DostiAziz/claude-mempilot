@@ -2293,7 +2293,7 @@ export interface InstallOptions {
    * `openai-compatible` is never a flag value: it is only ever kept from
    * settings.json by a non-interactive run (`providerSource: 'persisted'`).
    */
-  provider?: 'claude' | 'codex' | 'gemini' | 'openrouter' | 'openai-compatible' | 'host';
+  provider?: 'claude' | 'codex' | 'gemini' | 'openrouter' | 'openai-compatible' | 'ollama' | 'host';
   /**
    * How `provider` was decided. `flag` for an explicit `--provider` (and the
    * grok-bot implicit cmem default set in index.ts), `default` when a fresh
@@ -2530,8 +2530,9 @@ function hasPersonalProviderKey(provider: 'gemini' | 'openrouter', persisted: Re
 export function validateNonInteractiveProvider(
   options: InstallOptions,
   summary: InstallSummary,
+  forceNonInteractive = false,
 ): void {
-  if (isInteractive) return;
+  if (isInteractive && !forceNonInteractive) return;
 
   if (!options.provider) {
     // No `--provider` on a non-TTY run. Aborting here taught agents to re-run

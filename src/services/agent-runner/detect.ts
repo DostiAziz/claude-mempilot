@@ -270,7 +270,7 @@ async function detectCodex(dependencies: AgentDetectionDependencies): Promise<Us
 async function detectGemini(dependencies: AgentDetectionDependencies): Promise<UsableAgent> {
   // Support Antigravity CLI ('agy') as the primary Google agent, falling back to 'gemini'
   const customBinary = dependencies.environment.CLAUDE_MEM_GEMINI_CLI_BINARY?.trim();
-  let resolved: { path: string | null; reason: string } = { path: null, reason: '' };
+  let resolved: { path: string; reason?: string } | { path: null; reason: string } = { path: null, reason: '' };
   if (customBinary) {
     resolved = await resolveOnPath(dependencies, customBinary);
   }

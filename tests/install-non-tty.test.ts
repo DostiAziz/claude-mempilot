@@ -142,7 +142,6 @@ describe('Install Non-TTY Support', () => {
       expect(installRegion).toContain('enableCodexPluginConfig()');
       expect(installRegion).not.toContain('plugin_hooks');
     });
-    });
 
     it('captures Codex CLI output for install failure reporting', () => {
       // codex is spawned through the centralized codexSpawn() helper (#2695:

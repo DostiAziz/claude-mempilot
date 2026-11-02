@@ -46,7 +46,7 @@ import {
   recordObserverQuotaCooldown,
 } from './observer-health.js';
 
-export type QuotaProvider = 'claude' | 'gemini' | 'openrouter' | 'codex' | 'openai-compatible' | 'cmem-gateway';
+export type QuotaProvider = 'claude' | 'gemini' | 'openrouter' | 'codex' | 'openai-compatible' | 'cmem-gateway' | 'ollama';
 
 /** The credential a Claude run billed: an ANTHROPIC_API_KEY, or the Claude Code login. */
 export type ClaudeCredential = 'api-key' | 'subscription';
