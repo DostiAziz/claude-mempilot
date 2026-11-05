@@ -35,7 +35,8 @@ const workStateFieldsSchema = z.custom<WorkStateFields>(value =>
 ).transform(fields => ({ ...fields }));
 
 const workStateWriteSchema = z.object({
-  cwd: z.string().trim().min(1),
+  cwd: z.string().trim().min(1).optional(),
+  project: z.string().trim().min(1).optional(),
   list: z.string().trim().min(1).max(200),
   fields: workStateFieldsSchema
     .refine(fields => Object.keys(fields).length > 0, 'fields must set at least one key')
@@ -43,7 +44,7 @@ const workStateWriteSchema = z.object({
       fields => JSON.stringify(fields).length <= MAX_WORK_STATE_FIELDS_JSON_CHARS,
       `fields must be at most ${MAX_WORK_STATE_FIELDS_JSON_CHARS} characters as JSON`,
     ),
-});
+}).refine(data => Boolean(data.cwd || data.project), 'cwd or project is required');
 
 const CLOSING_STATUSES = ['dropped', 'done'];
 /** Why an owner-goals row cannot be saved, or null. List state rows and a row that only closes an item need no kind. */
@@ -75,11 +76,30 @@ export class WorkStateRoutes extends BaseRouteHandler {
   }
 
   private handleWrite = this.wrapHandler((req: Request, res: Response): void => {
-    const { cwd, list, fields } = req.body as z.infer<typeof workStateWriteSchema>;
+    let { cwd, list, fields, project } = req.body as z.infer<typeof workStateWriteSchema>;
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
 
+    let checkout = cwd ? getProjectContext(cwd) : null;
+    if (!checkout || checkout.primary === 'unknown-project') {
+      const explicitProject = typeof project === 'string' ? project.trim() : '';
+      if (explicitProject) {
+        checkout = { primary: explicitProject, parent: null, isWorktree: false, isSubmodule: false, allProjects: [explicitProject], keySource: 'environment' };
+      } else {
+        const latestSession = this.dbManager.getSessionStore().getLatestActiveSession();
+        if (latestSession?.cwd) {
+          cwd = latestSession.cwd;
+          checkout = getProjectContext(latestSession.cwd);
+        } else if (latestSession?.project) {
+          checkout = { primary: latestSession.project, parent: null, isWorktree: false, isSubmodule: false, allProjects: [latestSession.project], keySource: 'environment' };
+        }
+      }
+    }
+    if (!checkout) {
+      checkout = getProjectContext(cwd);
+    }
+
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
-    if (isProjectExcluded(cwd, settings.CLAUDE_MEM_EXCLUDED_PROJECTS)) {
+    if (cwd && isProjectExcluded(cwd, settings.CLAUDE_MEM_EXCLUDED_PROJECTS)) {
       logger.debug('WORKER', 'Work state write skipped for an excluded project', { cwd, list });
       res.send('Not saved: this project is excluded from claude-mem (CLAUDE_MEM_EXCLUDED_PROJECTS).');
       return;
@@ -104,7 +124,6 @@ export class WorkStateRoutes extends BaseRouteHandler {
       if (refusal) { res.status(400).send(`Not saved: ${refusal}`); return; }
     }
 
-    const checkout = getProjectContext(cwd);
     const store = this.dbManager.getSessionStore();
     store.appendWorkStateEntry({ project: checkout.primary, listName: list, fields });
     logger.debug('WORKER', 'Work state entry saved', { project: checkout.primary, list });
@@ -120,15 +139,32 @@ export class WorkStateRoutes extends BaseRouteHandler {
   });
 
   private handleRead = this.wrapHandler((req: Request, res: Response): void => {
-    const cwd = typeof req.query.cwd === 'string' ? req.query.cwd.trim() : '';
-    if (!cwd) {
+    let cwd = typeof req.query.cwd === 'string' ? req.query.cwd.trim() : '';
+    const explicitProject = typeof req.query.project === 'string' ? req.query.project.trim() : '';
+    let checkout = cwd ? getProjectContext(cwd) : null;
+    if (!checkout || checkout.primary === 'unknown-project') {
+      if (explicitProject) {
+        checkout = { primary: explicitProject, parent: null, isWorktree: false, isSubmodule: false, allProjects: [explicitProject], keySource: 'environment' };
+      } else {
+        const latestSession = this.dbManager.getSessionStore().getLatestActiveSession();
+        if (latestSession?.cwd) {
+          cwd = latestSession.cwd;
+          checkout = getProjectContext(latestSession.cwd);
+        } else if (latestSession?.project) {
+          checkout = { primary: latestSession.project, parent: null, isWorktree: false, isSubmodule: false, allProjects: [latestSession.project], keySource: 'environment' };
+        }
+      }
+    }
+    if (!cwd && (!checkout || checkout.primary === 'unknown-project')) {
       this.badRequest(res, 'cwd is required');
       return;
+    }
+    if (!checkout) {
+      checkout = getProjectContext(cwd);
     }
     const list = typeof req.query.list === 'string' && req.query.list.trim() ? req.query.list.trim() : undefined;
     const includeClosed = req.query.includeClosed === 'true';
 
-    const checkout = getProjectContext(cwd);
     const entries = this.dbManager.getSessionStore().getWorkStateEntries(checkout.allProjects, list);
     const lines = renderWorkStateLines(entries, Date.now(), includeClosed);
 

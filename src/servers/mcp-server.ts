@@ -74,7 +74,9 @@ function currentCheckout(): ProjectContext {
   let checkout = checkoutByCwd.get(cwd);
   if (!checkout) {
     checkout = getProjectContext(cwd);
-    checkoutByCwd.set(cwd, checkout);
+    if (checkout.primary !== 'unknown-project') {
+      checkoutByCwd.set(cwd, checkout);
+    }
   }
   return checkout;
 }
@@ -740,7 +742,7 @@ Optional Dumb search: \`dumb_search({query, project})\`. Doesn’t reason about 
   },
   {
     name: 'work_state_write',
-    description: 'Your canonical to-do list and working state for this project, kept across sessions: whatever is still open is shown at the start of every session. Each call appends one entry to a list. To-do item: fields {"task": "<name>", "status": "todo" | "doing" | "done" | "dropped", ...details}. State on the list itself: any other fields (the latest value of each key wins; null clears a key; "status": "done" closes the list). Returns what is still open in the list. Params: list (required), fields (required).',
+    description: 'Your canonical to-do list and working state for this project, kept across sessions: whatever is still open is shown at the start of every session. Each call appends one entry to a list. To-do item: fields {"task": "<name>", "status": "todo" | "doing" | "done" | "dropped", ...details}. State on the list itself: any other fields (the latest value of each key wins; null clears a key; "status": "done" closes the list). Returns what is still open in the list. Params: list (required), fields (required), project (optional).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -750,29 +752,31 @@ Optional Dumb search: \`dumb_search({query, project})\`. Doesn’t reason about 
           description: 'Keys to set. Include "task" to update a to-do item. Values are strings, numbers, booleans, or null to clear a key.',
           additionalProperties: { type: ['string', 'number', 'boolean', 'null'] },
         },
+        project: { type: 'string', description: 'Optional project name or checkout directory' },
       },
       required: ['list', 'fields'],
       additionalProperties: false,
     },
     handler: async (args: any) => callWorker('/api/work-state/entries', {
-      body: { cwd: getRequestCwd(), list: args?.list, fields: args?.fields },
+      body: { cwd: getRequestCwd(), list: args?.list, fields: args?.fields, ...(args?.project ? { project: args.project } : {}) },
       text: true,
     }),
   },
   {
     name: 'work_state_read',
-    description: "Read this project's to-do lists and working state written with work_state_write: every open item, or one list, with done and dropped items when includeClosed is true. Params: list, includeClosed.",
+    description: "Read this project's to-do lists and working state written with work_state_write: every open item, or one list, with done and dropped items when includeClosed is true. Params: list, includeClosed, project (optional).",
     inputSchema: {
       type: 'object',
       properties: {
         list: { type: 'string', description: 'Read only this list' },
         includeClosed: { type: 'boolean', description: 'Also show done and dropped items and closed lists' },
+        project: { type: 'string', description: 'Optional project name or checkout directory' },
       },
       additionalProperties: false,
     },
     annotations: READ_ONLY_TOOL_ANNOTATIONS,
     handler: async (args: any) => callWorker('/api/work-state', {
-      query: { cwd: getRequestCwd(), list: args?.list, includeClosed: args?.includeClosed },
+      query: { cwd: getRequestCwd(), list: args?.list, includeClosed: args?.includeClosed, ...(args?.project ? { project: args.project } : {}) },
       text: true,
     }),
   },
@@ -1307,7 +1311,24 @@ function createMcpServer(getCwd?: CwdResolver): Server {
     }
   );
 
-  const stdioCwd = getCwd ? null : createStdioCwdResolver({ peer: server, pluginRoot: MCP_PLUGIN_ROOT });
+  const stdioCwd = getCwd ? null : createStdioCwdResolver({
+    peer: server,
+    pluginRoot: MCP_PLUGIN_ROOT,
+    fallbackResolver: async () => {
+      try {
+        const response = await workerHttpRequest('/api/sessions/active-context');
+        if (response.ok) {
+          const data = (await response.json()) as { cwd?: string };
+          if (typeof data?.cwd === 'string' && data.cwd.trim() && data.cwd !== '/') {
+            return data.cwd.trim();
+          }
+        }
+      } catch {
+        // Worker may be inactive or starting up
+      }
+      return null;
+    },
+  });
   if (stdioCwd) server.setNotificationHandler(RootsListChangedNotificationSchema, async () => stdioCwd.markRootsStale());
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {

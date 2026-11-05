@@ -604,6 +604,14 @@ export class SessionRoutes extends BaseRouteHandler {
     app.get('/api/sessions/native-prompt-capability', (_req: Request, res: Response) => {
       res.json({ nativePromptId: 1 });
     });
+    app.get('/api/sessions/active-context', requireLocalhost, (_req: Request, res: Response) => {
+      const latest = this.dbManager.getSessionStore().getLatestActiveSession();
+      if (!latest) {
+        res.status(404).json({ error: 'No active session found' });
+        return;
+      }
+      res.json({ cwd: latest.cwd, project: latest.project });
+    });
     app.post(
       '/api/sessions/init',
       rejectForeignLoopbackBrowserWrite,

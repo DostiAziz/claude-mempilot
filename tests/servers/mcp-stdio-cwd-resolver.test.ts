@@ -48,6 +48,21 @@ describe('createStdioCwdResolver', () => {
     expect(fake.listRootsCalls).toBe(0);
   });
 
+  it('falls back to fallbackResolver when launch directory is root and client has no roots capability', async () => {
+    const activeProject = directory('active-project');
+    const fake = peer({ roots: false });
+    const resolver = createStdioCwdResolver({
+      peer: fake,
+      pluginRoot: directory('plugin'),
+      processCwd: () => '/',
+      pwd: () => '/',
+      fallbackResolver: async () => activeProject,
+    });
+
+    expect(await resolver.resolve()).toBe(activeProject);
+    expect(fake.listRootsCalls).toBe(0);
+  });
+
   it('keeps the last good roots answer when a later refresh times out', async () => {
     const pluginRoot = directory('plugin');
     const launch = directory('plugin/scripts');

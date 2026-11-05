@@ -17,6 +17,7 @@ const READ_ONLY_TOOL_NAMES = [
   'team_brief', 'team_search',
   'session_start_context', 'observation_search', 'observation_context', 'observation_generation_status',
   'smart_search', 'smart_unfold', 'smart_outline', 'list_corpora',
+  'code_graph_impact', 'get_feature_history', 'list_decisions', 'list_features', 'list_open_todos',
 ];
 
 describe('mcp-search tool annotations (#3483)', () => {
