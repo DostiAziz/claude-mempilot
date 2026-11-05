@@ -1168,7 +1168,14 @@ ${T.stack??""}
       FROM user_prompts up
       JOIN sdk_sessions s ON up.session_db_id = s.id
       WHERE up.id = ?
-    `).get(e)}findRecentDuplicateUserPrompt(e,t,s,n){return Is(this.db,e,q(t),s,this.resolvePromptSessionDbId(e,n)??void 0)}getRecentSessionsWithStatus(e,t=3,s){let n=[e],i="";return s&&(i=`AND COALESCE(NULLIF(s.platform_source, ''), '${S}') = ?`,n.push(R(s))),n.push(t),this.db.prepare(`
+    `).get(e)}findRecentDuplicateUserPrompt(e,t,s,n){return Is(this.db,e,q(t),s,this.resolvePromptSessionDbId(e,n)??void 0)}getLatestActiveSession(){return this.db.prepare(`
+      SELECT cwd, project
+      FROM sdk_sessions
+      WHERE (cwd IS NOT NULL AND cwd != '' AND cwd != '/')
+         OR (project IS NOT NULL AND project != '' AND project != 'unknown' AND project != 'unknown-project')
+      ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, started_at_epoch DESC
+      LIMIT 1
+    `).get()??null}getRecentSessionsWithStatus(e,t=3,s){let n=[e],i="";return s&&(i=`AND COALESCE(NULLIF(s.platform_source, ''), '${S}') = ?`,n.push(R(s))),n.push(t),this.db.prepare(`
       SELECT * FROM (
         SELECT
           s.memory_session_id,

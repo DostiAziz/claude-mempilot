@@ -3104,6 +3104,18 @@ export class SessionStore {
     );
   }
 
+  getLatestActiveSession(): { cwd: string | null; project: string } | null {
+    const row = this.db.prepare(`
+      SELECT cwd, project
+      FROM sdk_sessions
+      WHERE (cwd IS NOT NULL AND cwd != '' AND cwd != '/')
+         OR (project IS NOT NULL AND project != '' AND project != 'unknown' AND project != 'unknown-project')
+      ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, started_at_epoch DESC
+      LIMIT 1
+    `).get() as { cwd: string | null; project: string } | undefined;
+    return row ?? null;
+  }
+
   getRecentSessionsWithStatus(project: string, limit: number = 3, platformSource?: string): RecentSessionStatusRow[] {
     const params: any[] = [project];
     let platformClause = '';

@@ -265,6 +265,22 @@ describe('WorkStateRoutes', () => {
       .toBe(`Nothing open for ${project}. Pass includeClosed to see closed items.`);
     expect((await read({})).status).toBe(400);
   });
+
+  it('falls back to active session when cwd is root or unknown-project', async () => {
+    const id = store.createSDKSession('session-fallback-test', 'fallback-project', 'test prompt', undefined, 'claude');
+    store.setSessionCwd(id, checkout);
+    const response = await write({ cwd: '/', list: 'fallback-list', fields: { task: 'fallback-task', status: 'todo' } });
+    expect(await response.text()).toContain(`Saved to "fallback-list" in ${project}.`);
+    const readResponse = await read({ cwd: '/', list: 'fallback-list' });
+    expect(await readResponse.text()).toContain('[todo] fallback-task');
+  });
+
+  it('allows explicit project in write and read', async () => {
+    const response = await write({ project: 'custom-project', list: 'custom-list', fields: { task: 'custom-task', status: 'todo' } });
+    expect(await response.text()).toContain('Saved to "custom-list" in custom-project.');
+    const readResponse = await read({ project: 'custom-project', list: 'custom-list' });
+    expect(await readResponse.text()).toContain('[todo] custom-task');
+  });
 });
 
 

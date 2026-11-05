@@ -6,7 +6,7 @@ import { logger } from '../utils/logger.js';
 export const MCP_ROOTS_TIMEOUT_MS = 2000;
 export const MAX_MCP_ROOTS_ATTEMPTS = 3;
 
-export type McpCwdSource = 'header' | 'roots' | 'pwd' | 'process';
+export type McpCwdSource = 'header' | 'roots' | 'pwd' | 'process' | 'active-session';
 
 export interface McpCwdResolution {
   cwd: string;
@@ -103,6 +103,7 @@ export function createStdioCwdResolver(options: {
   pluginRoot: string;
   processCwd?: () => string;
   pwd?: () => string | undefined;
+  fallbackResolver?: () => Promise<string | null>;
 }): { resolve(): Promise<string>; markRootsStale(): void } {
   const { peer, pluginRoot } = options;
   const processCwd = options.processCwd ?? (() => process.cwd());
@@ -160,7 +161,19 @@ export function createStdioCwdResolver(options: {
         if (pendingRevision !== rootsRevision && rootsAttempts < MAX_MCP_ROOTS_ATTEMPTS) continue;
         break;
       }
-      const resolution = lastRoots ?? resolveMcpProjectCwd({ fallbackCwd: processCwd(), pwd: pwd(), pluginRoot });
+      let resolution = lastRoots ?? resolveMcpProjectCwd({ fallbackCwd: processCwd(), pwd: pwd(), pluginRoot });
+      if (resolution.source === 'process' && (resolution.cwd === '/' || resolution.cwd === '' || resolve(resolution.cwd) === resolve('/'))) {
+        if (options.fallbackResolver) {
+          try {
+            const fallbackCwd = await options.fallbackResolver();
+            if (fallbackCwd && fallbackCwd !== '/' && resolve(fallbackCwd) !== resolve('/')) {
+              resolution = { cwd: fallbackCwd, source: 'active-session' };
+            }
+          } catch {
+            // Keep process resolution on fallback error
+          }
+        }
+      }
       if (!logged || logged.source !== resolution.source || logged.cwd !== resolution.cwd) {
         // Kept path-free: this records which source won, not a project path.
         logger.info('SYSTEM', `MCP stdio working directory resolved from ${resolution.source}`);
