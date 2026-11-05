@@ -7,6 +7,7 @@ package-lock.json
 /build/
 /dsh/lib/
 *.tsbuildinfo
+plugin/scripts/claude-mem
 
 # SQLite databases (local runtime state, never commit user databases)
 *.db

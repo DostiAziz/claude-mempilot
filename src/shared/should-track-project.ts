@@ -35,7 +35,11 @@ function isWithin(child: string, parent: string): boolean {
 export function shouldTrackProject(cwd: string): boolean {
   if (process.env.CLAUDE_MEM_INTERNAL === '1') return false;
   if (!cwd) return true;
-  if (isWithin(cwd, DATA_DIR)) {
+  if (normalize(cwd) === normalize(DATA_DIR)) {
+    return false;
+  }
+  const internalDataSubdirs = ['state', 'logs', 'spool', 'deliverables', 'cache', 'transcripts'];
+  if (internalDataSubdirs.some(sub => isWithin(cwd, join(DATA_DIR, sub)))) {
     return false;
   }
   if (isWithin(cwd, OBSERVER_SESSIONS_DIR)) {
